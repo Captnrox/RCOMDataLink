@@ -91,31 +91,34 @@ int main(int argc, char *argv[])
     unsigned char buf[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
 	
 	volatile int Error = FALSE;
-	unsigned int count = 0;
-	
-	printf("hello");
+	unsigned int flags = 0;
 	
     while (STOP == FALSE)
     {	
-		for(int i = 0; i < BUF_SIZE; i++){
-			printf("0x%02X\n", buf[i]);
-			}
+			
         // Returns after 5 chars have been input
         int bytes = read(fd, buf, BUF_SIZE);
         buf[bytes] = '\0'; // Set end o#000000#000000#FFFFFF#FFFFFF#000000#000000f string to '\0', so we can printf
-		count++;
-
+		
+		for(int i = 0; i < BUF_SIZE; i++){
+			printf("Byte read 0x%02X\n", buf[i]);
+			if(buf[i] == 0x7E) flags++;
+		}
         printf(":%u:%d\n", buf, bytes);
         
-        if (count == 4 && buf[3] != buf[2]^buf[1]){
-			printf("Error");
-            STOP = TRUE;
-		}
-        if( buf[count-1] == 0x7e && count != 1){
-			printf("Success");
+		if (flags == 2 ){ 
+			printf("Two flags\n");
 			STOP = TRUE;
+			
+			if(buf[3] == buf[1]^buf[2]) {
+				printf("Success\n");
+				unsigned char UA[5] = {0x7E, 0x03, 0x07, 0x03^0x07, 0x7E};
+				int bytes = write(fd, UA, 5);
+				printf ("%d bytes written\n", bytes);
+				sleep(1);
 			}
-        
+			else {printf("Fail\n");}
+		}
     }
 
     // The while() cycle should be changed in order to respect the specifications
