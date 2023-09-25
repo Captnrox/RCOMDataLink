@@ -19,7 +19,7 @@
 #define FALSE 0
 #define TRUE 1
 
-#define BUF_SIZE 6
+#define BUF_SIZE 5
 
 volatile int STOP = FALSE;
 
@@ -93,22 +93,17 @@ int main(int argc, char *argv[])
     unsigned char FLAG = 0x7E;
     unsigned char A = 0x03;
     unsigned char C = 0x03;
-    unsigned char BCC1 = A^C;
+    unsigned char BCC1 = A ^ C;
 
-    unsigned char buf[BUF_SIZE] = {0};
-
-    buf[0] = FLAG;
-    buf[1] = A;
-    buf[2] = C;
-    buf[3] = BCC1;
-    buf[4] = FLAG;
+    unsigned char buf[BUF_SIZE] = {FLAG, A, C, BCC1, FLAG};
 
     // In non-canonical mode, '\n' does not end the writing.
     // Test this condition by placing a '\n' in the middle of the buffer.
     // The whole buffer must be sent even with the '\n'.
-    buf[5] = '\n';
+    // buf[5] = '\n';
 
-    for(int i =0; i < BUF_SIZE; i++){
+    for (int i = 0; i < BUF_SIZE; i++)
+    {
         printf("0x%02X\n", buf[i]);
     }
 
@@ -117,6 +112,34 @@ int main(int argc, char *argv[])
 
     // Wait until all bytes have been written to the serial port
     sleep(1);
+
+    unsigned char received[6] = {0};
+    unsigned char UA[5] = {FLAG,
+                           0x03,
+                           0x07,
+                           0x03 ^ 0x07,
+                           FLAG};
+
+    while (STOP == FALSE)
+    {
+
+        // Returns after 5 chars have been input
+        int bytes = read(fd, received, BUF_SIZE);
+        received[bytes] = '\0'; // Set end o#000000#000000#FFFFFF#FFFFFF#000000#000000f string to '\0', so we can printf
+
+        for (int i = 0; i < BUF_SIZE; i++)
+        {
+            printf("Byte received 0x%02X\n", received[i]);
+            if (received[i] != UA[i])
+            {
+                printf("Error\n");
+                STOP = TRUE;
+            }
+        }
+        printf(":%u:%d\n", received, bytes);
+        printf("Read UA\n");
+        STOP = TRUE;
+    }
 
     // Restore the old port settings
     if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
