@@ -17,6 +17,19 @@
 #define BAUDRATE B38400
 #define _POSIX_SOURCE 1 // POSIX compliant source
 
+//States
+
+#define START_ST 0
+#define FLAG_RCV 1
+#define A_RCV 2
+#define C_RCV 3
+#define BCC_OK 4
+
+#define FLAG 0x7E
+#define A_UA 0x03
+#define C_UA 0x07
+#define BCC1_UA A_UA ^ C_UA
+
 #define FALSE 0
 #define TRUE 1
 
@@ -102,18 +115,12 @@ int main(int argc, char *argv[])
     printf("New termios structure set\n");
 
     // Create string to send
-    unsigned char FLAG = 0x7E;
-    unsigned char A = 0x03;
-    unsigned char C = 0x03;
-    unsigned char BCC1 = A ^ C;
+    unsigned char A_SEND = 0x03;
+    unsigned char C_SEND = 0x03;
+    unsigned char BCC1 = A_SEND ^ C_SEND;
 
-    unsigned char buf[BUF_SIZE] = {FLAG, A, C, BCC1, FLAG};
+    unsigned char buf[BUF_SIZE] = {FLAG, A_SEND, C_SEND, BCC1, FLAG};
     unsigned char received[BUF_SIZE] = {0};
-    unsigned char UA[5] = {FLAG,
-                           0x03,
-                           0x07,
-                           0x03 ^ 0x07,
-                           FLAG};
 
     // In non-canonical mode, '\n' does not end the writing.
     // Test this condition by placing a '\n' in the middle of the buffer.
@@ -146,7 +153,9 @@ int main(int argc, char *argv[])
             printf("%d bytes written\n", write_bytes);
         }
 
-        // Returns after 5 chars have been input
+        unsigned char state = START_ST;
+
+        // Returns after a char has been input
         int read_bytes = read(fd, input, 1);
         if (read_bytes)
         {
@@ -154,22 +163,57 @@ int main(int argc, char *argv[])
             count++;
         }
 
-        if (count == 5)
+        switch (state)
         {
-            for (int i = 0; i < BUF_SIZE; i++)
+        case START_ST:
+        {
+            if (received[count] == FLAG)
+                state = FLAG_RCV;
+            break;
+        }
+        case FLAG_RCV:
+        {
+            if (received[count] == A_UA)
+                state = A_RCV;
+            else if (received[count] != FLAG)
+                state = START_ST;
+            break;
+        }
+        case A_RCV:
+        {
+            if (received[count] == C_UA)
+                state = C_RCV;
+            else if (received[count] == FLAG)
+                state = FLAG_RCV;
+            else
+                state = START_ST;
+            break;
+        }
+        case C_RCV:
+        {
+            if (received[count] == BCC1_UA)
+                state = BCC_OK;
+            if (received[count] == FLAG)
+                state = FLAG_RCV;
+            else
+                state = START_ST;
+            break;
+        }
+
+        case BCC_OK:
+        {
+            if (received[count] == FLAG)
             {
-                printf("Byte received 0x%02X\n", received[i]);
-                if (received[i] != UA[i])
-                {
-                    printf("Error\n");
-                    STOP = TRUE;
-                    break;
-                }
+                printf(":%u:%d\n", received, read_bytes);
+                printf("Read UA\n");
+
+                STOP = TRUE;
+                alarm(0);
             }
-            printf(":%u:%d\n", received, read_bytes);
-            printf("Read UA\n");
-            STOP = TRUE;
-            alarm(0);
+            else
+                state = START_ST;
+            break;
+        }
         }
     }
 
