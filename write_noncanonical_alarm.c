@@ -139,11 +139,11 @@ int main(int argc, char *argv[])
     (void)signal(SIGALRM, alarmHandler);
 
     unsigned char count = 0;
-    unsigned char input[BUF_SIZE] = {0};
+    unsigned char input[1] = {0};
+    unsigned char state = START_ST;
 
     while (alarmCount < 3 && STOP == FALSE)
     {
-
         if (alarmEnabled == FALSE)
         {
             alarm(3); // Set alarm to be triggered in 3s
@@ -152,8 +152,6 @@ int main(int argc, char *argv[])
             int write_bytes = write(fd, buf, BUF_SIZE);
             printf("%d bytes written\n", write_bytes);
         }
-
-        unsigned char state = START_ST;
 
         // Returns after a char has been input
         int read_bytes = read(fd, input, 1);
@@ -173,7 +171,7 @@ int main(int argc, char *argv[])
         }
         case FLAG_RCV:
         {
-            if (received[count] == A_UA)
+            if (received[count] == A_UA) //This is specific state machine for receiving UA that exits as soon as a wrong char is read, in a more general state machine, we don't verify what we receive here
                 state = A_RCV;
             else if (received[count] != FLAG)
                 state = START_ST;
@@ -191,7 +189,7 @@ int main(int argc, char *argv[])
         }
         case C_RCV:
         {
-            if (received[count] == BCC1_UA)
+            if (received[count] == BCC1_UA) //In a more general state machine, where we don't know what we are receiving, we compare the received BCC1 to the A (received) ^ C (received)
                 state = BCC_OK;
             if (received[count] == FLAG)
                 state = FLAG_RCV;
@@ -204,7 +202,7 @@ int main(int argc, char *argv[])
         {
             if (received[count] == FLAG)
             {
-                printf(":%u:%d\n", received, read_bytes);
+                printf(":%u:%d\n", received, count);
                 printf("Read UA\n");
 
                 STOP = TRUE;
