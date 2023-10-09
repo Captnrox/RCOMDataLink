@@ -127,18 +127,12 @@ int main(int argc, char *argv[])
     // The whole buffer must be sent even with the '\n'.
     // buf[5] = '\n';
 
-    for (int i = 0; i < BUF_SIZE; i++)
-    {
-        printf("0x%02X\n", buf[i]);
-    }
-
     // Wait until all bytes have been written to the serial port
     // sleep(1);
 
     // Set alarm function handler
     (void)signal(SIGALRM, alarmHandler);
 
-    unsigned char count = 0;
     unsigned char input[1] = {0};
     unsigned char state = START_ST;
 
@@ -151,37 +145,41 @@ int main(int argc, char *argv[])
 
             int write_bytes = write(fd, buf, BUF_SIZE);
             printf("%d bytes written\n", write_bytes);
+
+            for (int i = 0; i < BUF_SIZE; i++)
+            {
+                printf("0x%02X\n", buf[i]);
+            }
         }
 
         // Returns after a char has been input
         int read_bytes = read(fd, input, 1);
         if (read_bytes)
         {
-            received[count] = input[0];
-            count++;
+            printf("Read %u\n", input[0]);
         }
 
         switch (state)
         {
         case START_ST:
         {
-            if (received[count] == FLAG)
+            if (input[0] == FLAG)
                 state = FLAG_RCV;
             break;
         }
         case FLAG_RCV:
         {
-            if (received[count] == A_UA) //This is specific state machine for receiving UA that exits as soon as a wrong char is read, in a more general state machine, we don't verify what we receive here
+            if (input[0] == A_UA) //This is specific state machine for receiving UA that exits as soon as a wrong char is read, in a more general state machine, we don't verify what we receive here
                 state = A_RCV;
-            else if (received[count] != FLAG)
+            else if (input[0] != FLAG)
                 state = START_ST;
             break;
         }
         case A_RCV:
         {
-            if (received[count] == C_UA)
+            if (input[0] == C_UA)
                 state = C_RCV;
-            else if (received[count] == FLAG)
+            else if (input[0] == FLAG)
                 state = FLAG_RCV;
             else
                 state = START_ST;
@@ -189,9 +187,9 @@ int main(int argc, char *argv[])
         }
         case C_RCV:
         {
-            if (received[count] == BCC1_UA) //In a more general state machine, where we don't know what we are receiving, we compare the received BCC1 to the A (received) ^ C (received)
+            if (input[0] == BCC1_UA) //In a more general state machine, where we don't know what we are receiving, we compare the received BCC1 to the A (received) ^ C (received)
                 state = BCC_OK;
-            if (received[count] == FLAG)
+            else if (input[0] == FLAG)
                 state = FLAG_RCV;
             else
                 state = START_ST;
@@ -200,9 +198,8 @@ int main(int argc, char *argv[])
 
         case BCC_OK:
         {
-            if (received[count] == FLAG)
+            if (input[0] == FLAG)
             {
-                printf(":%u:%d\n", received, count);
                 printf("Read UA\n");
 
                 STOP = TRUE;
