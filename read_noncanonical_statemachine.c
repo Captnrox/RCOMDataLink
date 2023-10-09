@@ -27,12 +27,12 @@
 #define FLAG 0x7E
 #define A 0x03
 #define C 0x03
-#define BCC1 A ^ C
+#define BCC1 0x03 ^ 0x03
 
 #define FALSE 0
 #define TRUE 1
 
-#define BUF_SIZE 6
+#define BUF_SIZE 5
 volatile int STOP = FALSE;
 
 int main(int argc, char *argv[])
@@ -108,7 +108,7 @@ int main(int argc, char *argv[])
 	
 	unsigned char count = 0;
     unsigned char input[1] = {0};
-    unsigned char received[BUFF_SIZE] = {0};
+    unsigned char received[BUF_SIZE] = {0};
 	unsigned char state = START_ST;
 	
 	
@@ -116,43 +116,54 @@ int main(int argc, char *argv[])
     {	
 		// Returns after a char has been input
         int read_bytes = read(fd, input, 1);
+        
         if (read_bytes)
         {
-            received[count] = input[0];
-            count++;
+            printf("Read %x\n", input[0]);
         }
 
         switch (state)
         {
         case START_ST:
         {
-            if (received[count] == FLAG)
+            if (input[0] == FLAG)
                 state = FLAG_RCV;
             break;
         }
         case FLAG_RCV:
         {
-            if (received[count] == A)
+            if (input[0] == A)
                 state = A_RCV;
-            else if (received[count] != FLAG)
+            else if (input[0] != FLAG){
                 state = START_ST;
+			}
             break;
         }
         case A_RCV:
         {
-            if (received[count] == C)
+			printf("state 3 \n");
+            if (input[0] == C)
                 state = C_RCV;
-            else if (received[count] == FLAG)
+            else if (input[0] == FLAG)
                 state = FLAG_RCV;
-            else
+            else{
                 state = START_ST;
+                
+                count = 0;
+
+			}
             break;
         }
         case C_RCV:
         {
-            if (received[count] == BCC1)
+			printf("state 4 \n");
+			printf("input 0 = %x\n", input[0]);
+			printf("BCC1 = %d\n", BCC1);
+            if (input[0] == BCC1){
                 state = BCC_OK;
-            if (received[count] == FLAG)
+                printf("Entering state 5\n");
+                }
+            else if (input[0] == FLAG)
                 state = FLAG_RCV;
             else
                 state = START_ST;
@@ -161,7 +172,8 @@ int main(int argc, char *argv[])
 
         case BCC_OK:
         {
-            if (received[count] == FLAG)
+			printf("state 5 \n");
+            if (input[0] == FLAG)
             {
                 printf(":%u:%d\n", received, count);
                 printf("Read Message\n");
@@ -173,8 +185,10 @@ int main(int argc, char *argv[])
 
                 STOP = TRUE;
             }
-            else
+            else{
                 state = START_ST;
+               
+			}
             break;
         }
     }
