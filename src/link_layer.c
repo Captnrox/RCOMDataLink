@@ -255,6 +255,7 @@ int llopen_receiver(LinkLayer connectionParameters)
         }
         }
     }
+    return 1;
 }
 
 ////////////////////////////////////////////////

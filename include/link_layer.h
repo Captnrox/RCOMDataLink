@@ -77,6 +77,10 @@ int llopen(LinkLayer connectionParameters);
 // Return "1" on success or "-1" on error.
 int llopen_transmitter(LinkLayer connectionParameters);
 
+// Open a connection using the "port" parameters defined in struct linkLayer - Receiver Side
+// Return "1" on success or "-1" on error.
+int llopen_transmitter(LinkLayer connectionParameters);
+
 // Send data in buf with size bufSize.
 // Return number of chars written, or "-1" on error.
 int llwrite(const unsigned char *buf, int bufSize);
@@ -105,5 +109,8 @@ void create_inf_frame(unsigned char *data, unsigned n, bool frame_num, unsigned 
 // Destuffs the bytes in a frame
 // Places the result in destuffed_frame, an array corresponding to the frame information after translation
 void destuff_frame(unsigned char *frame, unsigned n, unsigned char *destuffed_frame);
+
+//Handles alarm interrupts
+void alarmHandler(int signal);
 
 #endif // _LINK_LAYER_H_
