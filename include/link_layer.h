@@ -52,12 +52,12 @@ typedef struct
 #define FLAG 0x7E
 #define A_UA 0x03
 #define C_UA 0x07
-#define BCC1_UA A_UA ^ C_UA
+#define BCC1_UA (A_UA ^ C_UA)
 
 // SET
 #define A_SET 0x03
 #define C_SET 0x03
-#define BCC1_SET A_SET ^ C_SET
+#define BCC1_SET (A_SET ^ C_SET)
 
 //SUPERV
 #define DISC 0x0B
@@ -82,7 +82,7 @@ int llopen_transmitter(LinkLayer connectionParameters);
 
 // Open a connection using the "port" parameters defined in struct linkLayer - Receiver Side
 // Return "1" on success or "-1" on error.
-int llopen_transmitter(LinkLayer connectionParameters);
+int llopen_receiver(LinkLayer connectionParameters);
 
 // Send data in buf with size bufSize.
 // Return number of chars written, or "-1" on error.
@@ -97,9 +97,9 @@ int llread(unsigned char *packet);
 // Return "1" on success or "-1" on error.
 int llclose(int showStatistics, LinkLayer connectionParameters);
 
-int llclose_trasmitter(LinkLayer connectionParameters);
+int llclose_transmitter(LinkLayer connectionParameters);
 
-int llclose_receiver(LinkLayer connectionParameters)
+int llclose_receiver(LinkLayer connectionParameters);
 
 // Escapes flags and escape characters in byte
 // Returns a struct containg a bool, that indicates if the byte required stuffing or not, and the corresponding stuffed sequence

@@ -4,7 +4,7 @@
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
 
-volatile int STOP = FALSE;
+int STOP = FALSE;
 int alarmEnabled = FALSE;
 int alarmCount = 0;
 int fd;
@@ -20,68 +20,6 @@ void alarmHandler(int signal)
     printf("[llopen] Alarm #%d\n", alarmCount);
 }
 
-////////////////////////////////////////////////
-// LLOPEN
-////////////////////////////////////////////////
-int llopen(LinkLayer connectionParameters)
-{
-    // Open serial port device for reading and writing, and not as controlling tty
-    // because we don't want to get killed if linenoise sends CTRL-C.
-    fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
-
-    if (fd < 0)
-    {
-        perror(connectionParameters.serialPort);
-        exit(-1);
-    }
-
-    // Save current port settings
-    if (tcgetattr(fd, &oldtio) == -1)
-    {
-        perror("[llopen] tcgetattr");
-        exit(-1);
-    }
-
-    // Clear struct for new port settings
-    memset(&newtio, 0, sizeof(newtio));
-
-    newtio.c_cflag = connectionParameters.baudRate | CS8 | CLOCAL | CREAD;
-    newtio.c_iflag = IGNPAR;
-    newtio.c_oflag = 0;
-
-    // Set input mode (non-canonical, no echo,...)
-    newtio.c_lflag = 0;
-    newtio.c_cc[VTIME] = 0; // Inter-character timer unused
-    newtio.c_cc[VMIN] = 0;  // the read() func will return immediately, with either the number of bytes currently available in the receiver buffer, or the number of bytes requested
-
-    // VTIME e VMIN should be changed in order to protect with a
-    // timeout the reception of the following character(s)
-
-    // Now clean the line and activate the settings for the port
-    // tcflush() discards data written to the object referred to
-    // by fd but not transmitted, or data received but not read,
-    // depending on the value of queue_selector:
-    //   TCIFLUSH - flushes data received but not read.
-    tcflush(fd, TCIOFLUSH);
-
-    // Set new port settings
-    if (tcsetattr(fd, TCSANOW, &newtio) == -1)
-    {
-        perror("[llopen] tcsetattr");
-        exit(-1);
-    }
-
-    printf("[llopen] New termios structure set\n");
-
-    switch (connectionParameters.role)
-    {
-    case LlTx:
-        return llopen_transmitter(connectionParameters);
-    case LlRx:
-        return llopen_receiver(connectionParameters);
-    }
-}
-
 int llopen_transmitter(LinkLayer connectionParameters)
 {
 
@@ -91,13 +29,14 @@ int llopen_transmitter(LinkLayer connectionParameters)
     unsigned char BCC1 = A_SEND ^ C_SEND;
 
     unsigned char buf[5] = {FLAG, A_SEND, C_SEND, BCC1, FLAG};
-    unsigned char received[5] = {0};
 
     // Set alarm function handler
     (void)signal(SIGALRM, alarmHandler);
 
     unsigned char input[1] = {0};
     unsigned char state = START_ST;
+    alarmEnabled = FALSE;
+    alarmCount = 0;
 
     while (alarmCount < 3)
     {
@@ -180,13 +119,12 @@ int llopen_transmitter(LinkLayer connectionParameters)
 
 int llopen_receiver(LinkLayer connectionParameters)
 {
+    printf("Reached llopen_receiver\n");
+
     // Loop for input
-    unsigned char buf[5] = {0};
-
-    volatile int Error = FALSE;
-
     unsigned char input[1] = {0};
     unsigned char state = START_ST;
+    STOP = FALSE;
 
     while (STOP == FALSE)
     {
@@ -195,7 +133,7 @@ int llopen_receiver(LinkLayer connectionParameters)
 
         if (read_bytes)
         {
-            printf("[llopen_receiver] Read %u\n", input[0]);
+            printf("[llopen_receiver] Read %x\n", input[0]);
         }
 
         switch (state)
@@ -234,7 +172,6 @@ int llopen_receiver(LinkLayer connectionParameters)
                 state = START_ST;
             break;
         }
-
         case BCC_OK:
         {
             if (input[0] == FLAG)
@@ -260,6 +197,72 @@ int llopen_receiver(LinkLayer connectionParameters)
 }
 
 ////////////////////////////////////////////////
+// LLOPEN
+////////////////////////////////////////////////
+int llopen(LinkLayer connectionParameters)
+{
+    printf("Reached llopen\n");
+    printf("[llopen] Serial port: %s\n", connectionParameters.serialPort);
+
+    // Open serial port device for reading and writing, and not as controlling tty
+    // because we don't want to get killed if linenoise sends CTRL-C.
+    fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
+
+    if (fd < 0)
+    {
+        perror(connectionParameters.serialPort);
+        exit(-1);
+    }
+
+    // Save current port settings
+    if (tcgetattr(fd, &oldtio) == -1)
+    {
+        perror("[llopen] tcgetattr");
+        exit(-1);
+    }
+
+    // Clear struct for new port settings
+    memset(&newtio, 0, sizeof(newtio));
+
+    newtio.c_cflag = connectionParameters.baudRate | CS8 | CLOCAL | CREAD;
+    newtio.c_iflag = IGNPAR;
+    newtio.c_oflag = 0;
+
+    // Set input mode (non-canonical, no echo,...)
+    newtio.c_lflag = 0;
+    newtio.c_cc[VTIME] = 0; // Inter-character timer unused
+    newtio.c_cc[VMIN] = 0;  // the read() func will return immediately, with either the number of bytes currently available in the receiver buffer, or the number of bytes requested
+
+    // VTIME e VMIN should be changed in order to protect with a
+    // timeout the reception of the following character(s)
+
+    // Now clean the line and activate the settings for the port
+    // tcflush() discards data written to the object referred to
+    // by fd but not transmitted, or data received but not read,
+    // depending on the value of queue_selector:
+    //   TCIFLUSH - flushes data received but not read.
+    tcflush(fd, TCIOFLUSH);
+
+    // Set new port settings
+    if (tcsetattr(fd, TCSANOW, &newtio) == -1)
+    {
+        perror("[llopen] tcsetattr");
+        exit(-1);
+    }
+
+    printf("[llopen] New termios structure set\n");
+
+    switch (connectionParameters.role)
+    {
+    case LlTx:
+        return llopen_transmitter(connectionParameters);
+    case LlRx:
+        return llopen_receiver(connectionParameters);
+    }
+    return -1;
+}
+
+////////////////////////////////////////////////
 // LLWRITE
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
@@ -279,45 +282,23 @@ int llread(unsigned char *packet)
     return 0;
 }
 
-////////////////////////////////////////////////
-// LLCLOSE
-////////////////////////////////////////////////
-int llclose(int showStatistics, LinkLayer connectionParameters)
+int llclose_transmitter(LinkLayer connectionParameters)
 {
-    switch (connectionParameters.role)
-    {
-    case LlTx:
-        return llclose_transmitter(connectionParameters);
-    case LlRx:
-        return llclose_receiver(connectionParameters);
-    }
+    printf("[llclose_transmitter] Reached llclose_transmitter\n");
 
-    // Restore the old port settings
-    if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
-    {
-        perror("tcsetattr");
-        exit(-1);
-    }
-
-    close(fd);
-
-    return 1;
-}
-
-int llclose_trasmitter(LinkLayer connectionParameters)
-{
     // Create the supervision frame
     unsigned char superv_A = 0x03;
     unsigned char superv_BCC1 = superv_A ^ DISC;
 
     unsigned char buf[5] = {FLAG, superv_A, DISC, superv_BCC1, FLAG};
-    unsigned received[5] = {0};
 
     // Set alarm function handler
     (void)signal(SIGALRM, alarmHandler);
 
     unsigned char input[1] = {0};
     unsigned char state = START_ST;
+    alarmEnabled = FALSE;
+    alarmCount = 0;
 
     while (alarmCount < 3)
     {
@@ -340,7 +321,7 @@ int llclose_trasmitter(LinkLayer connectionParameters)
         int read_bytes = read(fd, input, 1);
         if (read_bytes)
         {
-            printf("[llclose_transmitter] Read %u\n", input[0]);
+            printf("[llclose_transmitter] Read %x\n", input[0]);
         }
 
         switch (state)
@@ -364,7 +345,7 @@ int llclose_trasmitter(LinkLayer connectionParameters)
                 state = START_ST;
             break;
         case C_RCV:
-            if (input[0] == DISC ^ 0x01)
+            if (input[0] == (DISC ^ 0x01))
                 state = BCC_OK;
             else if (input[0] == FLAG)
                 state = FLAG_RCV;
@@ -394,11 +375,22 @@ int llclose_trasmitter(LinkLayer connectionParameters)
 
 int llclose_receiver(LinkLayer connectionParameters)
 {
+    printf("[llclose_receiver] Reached llclose_receiver\n");
+
     unsigned char state = START_ST;
     unsigned char input[1] = {0};
 
-    while (!STOP)
+    STOP = FALSE;
+
+    while (STOP == FALSE)
     {
+        // Returns after a char has been input
+        int read_bytes = read(fd, input, 1);
+        if (read_bytes)
+        {
+            printf("[llclose_receiver] Read %x\n", input[0]);
+        }
+
         switch (state)
         {
         case START_ST:
@@ -420,7 +412,7 @@ int llclose_receiver(LinkLayer connectionParameters)
                 state = START_ST;
             break;
         case C_RCV:
-            if (input[0] == DISC ^ 0x01)
+            if (input[0] == (DISC ^ 0x03))
                 state = BCC_OK;
             else if (input[0] == FLAG)
                 state = FLAG_RCV;
@@ -448,9 +440,11 @@ int llclose_receiver(LinkLayer connectionParameters)
 
     input[0] = 0;
     state = START_ST;
+    alarmEnabled = FALSE;
+    alarmCount = 0;
 
     // Write DISC and wait for UA from transmitter
-    while (alarmCount < 3 && STOP == FALSE)
+    while (alarmCount < 3)
     {
         if (alarmEnabled == FALSE)
         {
@@ -459,7 +453,7 @@ int llclose_receiver(LinkLayer connectionParameters)
 
             int write_bytes = write(fd, buf, 5);
             sleep(1);
-            printf("[llclose_receiver] %d bytes written\n", write_bytes);
+            printf("[llclose_receiver] %d bytes written:\n", write_bytes);
 
             for (int i = 0; i < 5; i++)
             {
@@ -471,7 +465,7 @@ int llclose_receiver(LinkLayer connectionParameters)
         int read_bytes = read(fd, input, 1);
         if (read_bytes)
         {
-            printf("[llopen_transmitter] Read %u\n", input[0]);
+            printf("[llclose_transmitter] Read 0x%x\n", input[0]);
         }
 
         switch (state)
@@ -502,7 +496,7 @@ int llclose_receiver(LinkLayer connectionParameters)
         }
         case C_RCV:
         {
-            if (input[0] == BCC1_UA) // In a more general state machine, where we don't know what we are receiving, we compare the received BCC1 to the A (received) ^ C (received)
+            if (input[0] == (0x01 ^ C_UA)) // In a more general state machine, where we don't know what we are receiving, we compare the received BCC1 to the A (received) ^ C (received)
                 state = BCC_OK;
             else if (input[0] == FLAG)
                 state = FLAG_RCV;
@@ -529,6 +523,38 @@ int llclose_receiver(LinkLayer connectionParameters)
     return -1;
 }
 
+////////////////////////////////////////////////
+// LLCLOSE
+////////////////////////////////////////////////
+
+int llclose(int showStatistics, LinkLayer connectionParameters)
+{
+    printf("Reached llclose\n");
+
+    switch (connectionParameters.role)
+    {
+    case LlTx:
+        if (llclose_transmitter(connectionParameters) == -1)
+            return -1;
+        break;
+    case LlRx:
+        if (llclose_receiver(connectionParameters) == -1)
+            return -1;
+        break;
+    }
+
+    // Restore the old port settings
+    if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
+    {
+        perror("tcsetattr");
+        exit(-1);
+    }
+
+    close(fd);
+
+    return 1;
+}
+
 StuffingAux stuff_byte(unsigned char byte)
 {
     StuffingAux result;
@@ -551,7 +577,7 @@ StuffingAux stuff_byte(unsigned char byte)
     }
     default:
     {
-        result.stuffed = false;
+        result.stuffed = FALSE;
         result.byte1 = byte;
         return result;
     }
@@ -565,7 +591,7 @@ StuffingAux destuff_byte(unsigned char byte1, unsigned char byte2)
     // Is not stuffed
     if (byte1 != 0x7D)
     {
-        result.stuffed = false;
+        result.stuffed = FALSE;
         result.byte1 = byte1;
         result.byte2 = byte2;
         return result;
@@ -587,6 +613,7 @@ StuffingAux destuff_byte(unsigned char byte1, unsigned char byte2)
         return result;
     }
     }
+    return result;
 }
 
 void create_inf_frame(unsigned char *data, unsigned n, bool frame_num, unsigned char *result)
@@ -669,4 +696,3 @@ void destuff_frame(unsigned char *frame, unsigned n, unsigned char *destuffed_fr
         }
     }
 }
-
