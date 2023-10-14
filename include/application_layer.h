@@ -4,6 +4,15 @@
 #ifndef _APPLICATION_LAYER_H_
 #define _APPLICATION_LAYER_H_
 
+#include <math.h>
+
+// CONTROL PACKET
+
+#define CTRL_START 2
+#define CTRL_END 3
+#define T_SIZE 0
+#define T_NAME 1
+
 // Application layer main function.
 // Arguments:
 //   serialPort: Serial port name (e.g., /dev/ttyS0).
