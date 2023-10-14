@@ -78,7 +78,7 @@ int llopen(LinkLayer connectionParameters)
     case LlTx:
         return llopen_transmitter(connectionParameters);
     case LlRx:
-        break;
+        return llopen_receiver(connectionParameters);
     }
 }
 
@@ -99,7 +99,7 @@ int llopen_transmitter(LinkLayer connectionParameters)
     unsigned char input[1] = {0};
     unsigned char state = START_ST;
 
-    while (alarmCount < 3 && STOP == FALSE)
+    while (alarmCount < 3)
     {
         if (alarmEnabled == FALSE)
         {
@@ -107,6 +107,7 @@ int llopen_transmitter(LinkLayer connectionParameters)
             alarmEnabled = TRUE;
 
             int write_bytes = write(fd, buf, 5);
+            sleep(0);
             printf("[llopen_transmitter] %d bytes written\n", write_bytes);
 
             for (int i = 0; i < 5; i++)
@@ -165,8 +166,8 @@ int llopen_transmitter(LinkLayer connectionParameters)
             {
                 printf("[llopen_transmitter] Read UA\n");
 
-                STOP = TRUE;
                 alarm(0);
+                return 1;
             }
             else
                 state = START_ST;
@@ -174,7 +175,7 @@ int llopen_transmitter(LinkLayer connectionParameters)
         }
         }
     }
-    return 1;
+    return -1;
 }
 
 int llopen_receiver(LinkLayer connectionParameters)
@@ -238,12 +239,12 @@ int llopen_receiver(LinkLayer connectionParameters)
         {
             if (input[0] == FLAG)
             {
-                printf("[llopen_receiver] Read Message\n");
+                printf("[llopen_receiver] Read SET\n");
 
                 unsigned char UA[5] = {FLAG, 0x03, 0x07, 0x03 ^ 0x07, FLAG};
                 int bytes = write(fd, UA, 5);
-                printf("[llopen_receiver] %d UA bytes written\n", bytes);
                 sleep(1);
+                printf("[llopen_receiver] %d UA bytes written\n", bytes);
 
                 STOP = TRUE;
             }
@@ -281,8 +282,15 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 // LLCLOSE
 ////////////////////////////////////////////////
-int llclose(int showStatistics)
+int llclose(int showStatistics, LinkLayer connectionParameters)
 {
+    switch (connectionParameters.role)
+    {
+    case LlTx:
+        return llclose_transmitter(connectionParameters);
+    case LlRx:
+        return llclose_receiver(connectionParameters);
+    }
 
     // Restore the old port settings
     if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
@@ -294,6 +302,231 @@ int llclose(int showStatistics)
     close(fd);
 
     return 1;
+}
+
+int llclose_trasmitter(LinkLayer connectionParameters)
+{
+    // Create the supervision frame
+    unsigned char superv_A = 0x03;
+    unsigned char superv_BCC1 = superv_A ^ DISC;
+
+    unsigned char buf[5] = {FLAG, superv_A, DISC, superv_BCC1, FLAG};
+    unsigned received[5] = {0};
+
+    // Set alarm function handler
+    (void)signal(SIGALRM, alarmHandler);
+
+    unsigned char input[1] = {0};
+    unsigned char state = START_ST;
+
+    while (alarmCount < 3)
+    {
+        if (alarmEnabled == FALSE)
+        {
+            alarm(3); // Set alarm to be triggered in 3s
+            alarmEnabled = TRUE;
+
+            int write_bytes = write(fd, buf, 5);
+            sleep(1);
+            printf("[llclose_transmitter] %d bytes written\n", write_bytes);
+
+            for (int i = 0; i < 5; i++)
+            {
+                printf("[llclose_transmitter] 0x%02X\n", buf[i]);
+            }
+        }
+
+        // Returns after a char has been input
+        int read_bytes = read(fd, input, 1);
+        if (read_bytes)
+        {
+            printf("[llclose_transmitter] Read %u\n", input[0]);
+        }
+
+        switch (state)
+        {
+        case START_ST:
+            if (input[0] == FLAG)
+                state = FLAG_RCV;
+            break;
+        case FLAG_RCV:
+            if (input[0] == 0x01)
+                state = A_RCV;
+            else if (input[0] != FLAG)
+                state = START_ST;
+            break;
+        case A_RCV:
+            if (input[0] == DISC)
+                state = C_RCV;
+            else if (input[0] == FLAG)
+                state = FLAG_RCV;
+            else
+                state = START_ST;
+            break;
+        case C_RCV:
+            if (input[0] == DISC ^ 0x01)
+                state = BCC_OK;
+            else if (input[0] == FLAG)
+                state = FLAG_RCV;
+            else
+                state = START_ST;
+            break;
+        case BCC_OK:
+            if (input[0] == FLAG)
+            {
+                printf("[llclose_trasmitter] Read DISC\n");
+
+                unsigned char UA[5] = {FLAG, 0x01, C_UA, 0x01 ^ C_UA, FLAG};
+                int bytes = write(fd, UA, 5);
+                sleep(1);
+                printf("[llopen_trasmitter] %d UA bytes written\n", bytes);
+
+                alarm(0);
+                return 1;
+            }
+            else
+                state = START_ST;
+            break;
+        }
+    }
+    return -1;
+}
+
+int llclose_receiver(LinkLayer connectionParameters)
+{
+    unsigned char state = START_ST;
+    unsigned char input[1] = {0};
+
+    while (!STOP)
+    {
+        switch (state)
+        {
+        case START_ST:
+            if (input[0] == FLAG)
+                state = FLAG_RCV;
+            break;
+        case FLAG_RCV:
+            if (input[0] == 0x03)
+                state = A_RCV;
+            else if (input[0] != FLAG)
+                state = START_ST;
+            break;
+        case A_RCV:
+            if (input[0] == DISC)
+                state = C_RCV;
+            else if (input[0] == FLAG)
+                state = FLAG_RCV;
+            else
+                state = START_ST;
+            break;
+        case C_RCV:
+            if (input[0] == DISC ^ 0x01)
+                state = BCC_OK;
+            else if (input[0] == FLAG)
+                state = FLAG_RCV;
+            else
+                state = START_ST;
+            break;
+        case BCC_OK:
+            if (input[0] == FLAG)
+            {
+                printf("[llclose_receiver] Read DISC\n");
+                STOP = true;
+            }
+            else
+                state = START_ST;
+        }
+    }
+
+    // Create the DISC frame
+    unsigned char superv_A = 0x01;
+    unsigned char superv_BCC1 = superv_A ^ DISC;
+
+    unsigned char buf[5] = {FLAG, superv_A, DISC, superv_BCC1, FLAG};
+
+    (void)signal(SIGALRM, alarmHandler);
+
+    input[0] = 0;
+    state = START_ST;
+
+    // Write DISC and wait for UA from transmitter
+    while (alarmCount < 3 && STOP == FALSE)
+    {
+        if (alarmEnabled == FALSE)
+        {
+            alarm(3); // Set alarm to be triggered in 3s
+            alarmEnabled = TRUE;
+
+            int write_bytes = write(fd, buf, 5);
+            sleep(1);
+            printf("[llclose_receiver] %d bytes written\n", write_bytes);
+
+            for (int i = 0; i < 5; i++)
+            {
+                printf("[llclose_receiver] 0x%02X\n", buf[i]);
+            }
+        }
+
+        // Returns after a char has been input
+        int read_bytes = read(fd, input, 1);
+        if (read_bytes)
+        {
+            printf("[llopen_transmitter] Read %u\n", input[0]);
+        }
+
+        switch (state)
+        {
+        case START_ST:
+        {
+            if (input[0] == FLAG)
+                state = FLAG_RCV;
+            break;
+        }
+        case FLAG_RCV:
+        {
+            if (input[0] == 0x01) // This is specific state machine for receiving UA that exits as soon as a wrong char is read, in a more general state machine, we don't verify what we receive here
+                state = A_RCV;
+            else if (input[0] != FLAG)
+                state = START_ST;
+            break;
+        }
+        case A_RCV:
+        {
+            if (input[0] == C_UA)
+                state = C_RCV;
+            else if (input[0] == FLAG)
+                state = FLAG_RCV;
+            else
+                state = START_ST;
+            break;
+        }
+        case C_RCV:
+        {
+            if (input[0] == BCC1_UA) // In a more general state machine, where we don't know what we are receiving, we compare the received BCC1 to the A (received) ^ C (received)
+                state = BCC_OK;
+            else if (input[0] == FLAG)
+                state = FLAG_RCV;
+            else
+                state = START_ST;
+            break;
+        }
+
+        case BCC_OK:
+        {
+            if (input[0] == FLAG)
+            {
+                printf("[llclose_receiverer] Read UA\n");
+                alarm(0);
+
+                return 1;
+            }
+            else
+                state = START_ST;
+            break;
+        }
+        }
+    }
+    return -1;
 }
 
 StuffingAux stuff_byte(unsigned char byte)
@@ -436,3 +669,4 @@ void destuff_frame(unsigned char *frame, unsigned n, unsigned char *destuffed_fr
         }
     }
 }
+

@@ -59,6 +59,9 @@ typedef struct
 #define C_SET 0x03
 #define BCC1_SET A_SET ^ C_SET
 
+//SUPERV
+#define DISC 0x0B
+
 // STATE MACHINE
 #define START_ST 0
 #define FLAG_RCV 1
@@ -92,7 +95,11 @@ int llread(unsigned char *packet);
 // Close previously opened connection.
 // if showStatistics == TRUE, link layer should print statistics in the console on close.
 // Return "1" on success or "-1" on error.
-int llclose(int showStatistics);
+int llclose(int showStatistics, LinkLayer connectionParameters);
+
+int llclose_trasmitter(LinkLayer connectionParameters);
+
+int llclose_receiver(LinkLayer connectionParameters)
 
 // Escapes flags and escape characters in byte
 // Returns a struct containg a bool, that indicates if the byte required stuffing or not, and the corresponding stuffed sequence
