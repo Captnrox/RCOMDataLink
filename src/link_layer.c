@@ -30,6 +30,7 @@ void alarmHandler(int signal)
 
 int sendReceiverResponse(unsigned char C)
 {
+    printf("C: %x\n", C);
     unsigned char frame[5] = {FLAG, ANS_RX, C, ANS_RX ^ C, FLAG};
     return write(fd, frame, 5);
 }
@@ -292,11 +293,6 @@ int llwriteSendFrame(unsigned char *frame, int frameSize)
     alarmEnabled = FALSE;
     alarmCount = 0;
 
-    for (int i = 0; i < frameSize; i++)
-    {
-        printf("Frame: %x\n", frame[i]);
-    }
-
     while (alarmCount < numRetransmissions)
     {
         if (alarmEnabled == FALSE)
@@ -367,7 +363,7 @@ int llwriteSendFrame(unsigned char *frame, int frameSize)
         {
             if (input[0] == FLAG)
             {
-                printf("[llwriteSendFrame] Read RR\n");
+                printf("[llwriteSendFrame] Read RR %x\n", expectedResponse);
                 alarm(0);
                 frameCountTx = !frameCountTx;
                 return frameSize;
@@ -388,9 +384,15 @@ int llwriteSendFrame(unsigned char *frame, int frameSize)
 int llwrite(const unsigned char *buf, int bufSize)
 {
     unsigned char infFrame[6 + 2 * bufSize];
+    printf("Frame count: %d\n", frameCountTx);
     createInfFrame(buf, bufSize, frameCountTx, CMD_TX, infFrame);
 
-    while (llwriteSendFrame(infFrame, 2 * bufSize + 6) == -1); //QUESTION: Deve ser a application layer a rechamar o llwrite em caso de erro, ou aqui? (AQui poupa criar a frame outra vez)
+    for(int i = 0; i < 6; i++){
+        printf("Inf frame header: %x\n", infFrame[i]);
+    }
+
+    while (llwriteSendFrame(infFrame, 2 * bufSize + 6) == -1)
+        ; // QUESTION: Deve ser a application layer a rechamar o llwrite em caso de erro, ou aqui? (AQui poupa criar a frame outra vez)
     return bufSize + 6;
 }
 
@@ -399,6 +401,7 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
+    printf("Entered llread\n");
     unsigned char input[1] = {0};
     unsigned char state = START_ST;
     STOP = FALSE;
@@ -414,8 +417,9 @@ int llread(unsigned char *packet)
         int read_bytes = read(fd, input, 1);
         if (read_bytes)
         {
-            printf("[llread] Read %u\n", input[0]);
-            printf("%d\n", state);
+            //     printf("[llread] Read %u\n", input[0]);
+            if (state != 0)
+                printf("%d\n", state);
         }
 
         switch (state)
@@ -431,7 +435,11 @@ int llread(unsigned char *packet)
             if (input[0] == CMD_TX)
                 state = A_RCV;
             else if (input[0] != FLAG)
+            {
+                printf("%x\n", input[0]);
+                printf("Going to start\n");
                 state = START_ST;
+            }
             break;
         }
         case A_RCV:
@@ -449,7 +457,11 @@ int llread(unsigned char *packet)
             else if (input[0] == FLAG)
                 state = FLAG_RCV;
             else
+            {
+                printf("%x\n", input[0]);
+                printf("Going to start\n");
                 state = START_ST;
+            }
             break;
         }
         case C_RCV:
@@ -469,6 +481,7 @@ int llread(unsigned char *packet)
                 state = DESTUFFING;
             else if (input[0] == FLAG)
             {
+                printf("Read whole input\n");
                 unsigned char receivedBcc2 = packet[packetIdx - 1];
                 bcc2 = packet[0];
 
@@ -880,16 +893,11 @@ void createInfFrame(const unsigned char *data, unsigned n, bool frameNum, Addres
 {
     unsigned char header[4] = {FLAG,
                                addressType,
-                               frameNum,
-                               addressType ^ frameNum};
+                               frameNum ? 0x40 : 0x00,
+                               addressType ^ (frameNum ? 0x40 : 0x00)};
 
     unsigned result_idx = 4; // Next idx on which to write data
     memcpy(result, header, 4);
-
-    for (int i = 0; i < 4; i++)
-    {
-        printf("Frame header: %x\n", result[i]);
-    }
 
     unsigned char bcc2 = data[0];
 
@@ -930,11 +938,6 @@ void createInfFrame(const unsigned char *data, unsigned n, bool frameNum, Addres
     }
 
     result[result_idx] = FLAG;
-
-    for (int i = 0; i < 16; i++)
-    {
-        printf("Inf frame: %x\n", result[i]);
-    }
 }
 
 void destuffFrame(unsigned char *frame, unsigned n, unsigned char *destuffedFrame)
