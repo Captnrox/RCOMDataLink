@@ -24,4 +24,8 @@
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename);
 
+// Auxiliary function to calculate how many bytes a number takes up
+// Returns the number of bytes of n
+unsigned int bytesToRepresent(long int n);
+
 #endif // _APPLICATION_LAYER_H_

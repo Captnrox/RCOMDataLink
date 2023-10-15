@@ -21,6 +21,15 @@ typedef enum
     LlRx,
 } LinkLayerRole;
 
+typedef enum
+{
+    CMD_TX, // Commands sent by the transmitter
+    CMD_RX, // Commands sent by the receiver
+    ANS_TX, // Replies sent by the transmitter
+    ANS_RX, // Replies sent by the receiver
+
+} AddressFieldType;
+
 typedef struct
 {
     char serialPort[50];
@@ -47,30 +56,30 @@ typedef struct
 // MISC
 #define FALSE 0
 #define TRUE 1
-
-// UA
 #define FLAG 0x7E
-#define A_UA 0x03
-#define C_UA 0x07
-#define BCC1_UA (A_UA ^ C_UA)
 
-// SET
-#define A_SET 0x03
+// ADDRESS FIELD TYPES
+#define CMD_TX 0x03
+#define CMD_RX 0x01
+#define ANS_TX 0x01
+#define ANS_RX 0x03
+
+// SUPERVISION FRAMES
 #define C_SET 0x03
-#define BCC1_SET (A_SET ^ C_SET)
+#define C_UA 0x07
+#define C_RR0 0x05
+#define C_RR1 0x85
+#define C_REJ0 0x01
+#define C_REJ1 0x81
+#define C_DISC 0x0B
 
-//SUPERV
-#define DISC 0x0B
 
-// STATE MACHINE
+// STATE MACHINES
 #define START_ST 0
 #define FLAG_RCV 1
 #define A_RCV 2
 #define C_RCV 3
 #define BCC_OK 4
-
-// INFORMATION FRAMES
-#define A_SENT_BY_TX 0x03
 
 // Open a connection using the "port" parameters defined in struct linkLayer.
 // Return "1" on success or "-1" on error.
@@ -78,15 +87,19 @@ int llopen(LinkLayer connectionParameters);
 
 // Open a connection using the "port" parameters defined in struct linkLayer - Transmitter Side
 // Return "1" on success or "-1" on error.
-int llopen_transmitter(LinkLayer connectionParameters);
+int llopenTransmitter(LinkLayer connectionParameters);
 
 // Open a connection using the "port" parameters defined in struct linkLayer - Receiver Side
 // Return "1" on success or "-1" on error.
-int llopen_receiver(LinkLayer connectionParameters);
+int llopenReceiver(LinkLayer connectionParameters);
 
 // Send data in buf with size bufSize.
 // Return number of chars written, or "-1" on error.
 int llwrite(const unsigned char *buf, int bufSize);
+
+// Auxiliary function that sends a frame and waits for the appropriate RR response from the receiver
+// Returns the number of frames sent if it got a succesful response, or -1 if the frame got rejected or if no response was read
+int llwriteSendFrame(unsigned char *frame, int frameSize);
 
 // Receive data in packet.
 // Return number of chars read, or "-1" on error.
@@ -97,27 +110,27 @@ int llread(unsigned char *packet);
 // Return "1" on success or "-1" on error.
 int llclose(int showStatistics, LinkLayer connectionParameters);
 
-int llclose_transmitter(LinkLayer connectionParameters);
+int llcloseTransmitter(LinkLayer connectionParameters);
 
-int llclose_receiver(LinkLayer connectionParameters);
+int llcloseReceiver(LinkLayer connectionParameters);
 
 // Escapes flags and escape characters in byte
 // Returns a struct containg a bool, that indicates if the byte required stuffing or not, and the corresponding stuffed sequence
-StuffingAux stuff_byte(unsigned char byte);
+StuffingAux stuffByte(unsigned char byte);
 
 // Translates escape sequences in the received bytes
 // Return a struct containing a bool, that indicates if the bytes required destuffing ot not, and the corresponding destuffed sequence
-StuffingAux destuff_byte(unsigned char byte1, unsigned char byte2);
+StuffingAux destuffByte(unsigned char byte1, unsigned char byte2);
 
 // Creates information frame with the data passed as parameter and the corresponding frame number
 // Places the created frame in the result array
-void create_inf_frame(unsigned char *data, unsigned n, bool frame_num, unsigned char *result);
+void createInfFrame(const unsigned char *data, unsigned n, bool frameNum, AddressFieldType addressType, unsigned char *result);
 
 // Destuffs the bytes in a frame
 // Places the result in destuffed_frame, an array corresponding to the frame information after translation
-void destuff_frame(unsigned char *frame, unsigned n, unsigned char *destuffed_frame);
+void destuffFrame(unsigned char *frame, unsigned n, unsigned char *destuffed_frame);
 
-//Handles alarm interrupts
+// Handles alarm interrupts
 void alarmHandler(int signal);
 
 #endif // _LINK_LAYER_H_

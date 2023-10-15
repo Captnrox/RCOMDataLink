@@ -4,12 +4,20 @@
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
 
-int STOP = FALSE;
+volatile int STOP = FALSE;
 int alarmEnabled = FALSE;
 int alarmCount = 0;
+
 int fd;
+
 struct termios oldtio;
 struct termios newtio;
+
+bool frameCountTx = 0;
+bool frameCountRx = 0;
+
+int numRetransmissions;
+int timeout;
 
 // Alarm function handler
 void alarmHandler(int signal)
@@ -17,12 +25,12 @@ void alarmHandler(int signal)
     alarmEnabled = FALSE;
     alarmCount++;
 
-    printf("[llopen] Alarm #%d\n", alarmCount);
+    printf("Alarm #%d\n", alarmCount);
 }
 
-int llopen_transmitter(LinkLayer connectionParameters)
+int llopenTransmitter(LinkLayer connectionParameters)
 {
-
+    printf("Reached llopenTransmitter\n");
     // Create string to send
     unsigned char A_SEND = 0x03;
     unsigned char C_SEND = 0x03;
@@ -38,20 +46,20 @@ int llopen_transmitter(LinkLayer connectionParameters)
     alarmEnabled = FALSE;
     alarmCount = 0;
 
-    while (alarmCount < 3)
+    while (alarmCount < numRetransmissions)
     {
         if (alarmEnabled == FALSE)
         {
-            alarm(3); // Set alarm to be triggered in 3s
+            alarm(timeout); // Set alarm to be triggered in timeout seconds
             alarmEnabled = TRUE;
 
             int write_bytes = write(fd, buf, 5);
-            sleep(0);
-            printf("[llopen_transmitter] %d bytes written\n", write_bytes);
+            sleep(1);
+            printf("[llopenTransmitter] %d bytes written\n", write_bytes);
 
             for (int i = 0; i < 5; i++)
             {
-                printf("[llopen_transmitter] 0x%02X\n", buf[i]);
+                printf("[llopenTransmitter] 0x%02X\n", buf[i]);
             }
         }
 
@@ -59,7 +67,7 @@ int llopen_transmitter(LinkLayer connectionParameters)
         int read_bytes = read(fd, input, 1);
         if (read_bytes)
         {
-            printf("[llopen_transmitter] Read %u\n", input[0]);
+            printf("[llopenTransmitter] Read %u\n", input[0]);
         }
 
         switch (state)
@@ -72,7 +80,7 @@ int llopen_transmitter(LinkLayer connectionParameters)
         }
         case FLAG_RCV:
         {
-            if (input[0] == A_UA) // This is specific state machine for receiving UA that exits as soon as a wrong char is read, in a more general state machine, we don't verify what we receive here
+            if (input[0] == ANS_RX) // This is specific state machine for receiving UA that exits as soon as a wrong char is read, in a more general state machine, we don't verify what we receive here
                 state = A_RCV;
             else if (input[0] != FLAG)
                 state = START_ST;
@@ -90,7 +98,7 @@ int llopen_transmitter(LinkLayer connectionParameters)
         }
         case C_RCV:
         {
-            if (input[0] == BCC1_UA) // In a more general state machine, where we don't know what we are receiving, we compare the received BCC1 to the A (received) ^ C (received)
+            if (input[0] == (ANS_RX ^ C_UA)) // In a more general state machine, where we don't know what we are receiving, we compare the received BCC1 to the A (received) ^ C (received)
                 state = BCC_OK;
             else if (input[0] == FLAG)
                 state = FLAG_RCV;
@@ -103,7 +111,7 @@ int llopen_transmitter(LinkLayer connectionParameters)
         {
             if (input[0] == FLAG)
             {
-                printf("[llopen_transmitter] Read UA\n");
+                printf("[llopenTransmitter] Read UA\n");
 
                 alarm(0);
                 return 1;
@@ -117,9 +125,9 @@ int llopen_transmitter(LinkLayer connectionParameters)
     return -1;
 }
 
-int llopen_receiver(LinkLayer connectionParameters)
+int llopenReceiver(LinkLayer connectionParameters)
 {
-    printf("Reached llopen_receiver\n");
+    printf("Reached llopenReceiver\n");
 
     // Loop for input
     unsigned char input[1] = {0};
@@ -133,7 +141,7 @@ int llopen_receiver(LinkLayer connectionParameters)
 
         if (read_bytes)
         {
-            printf("[llopen_receiver] Read %x\n", input[0]);
+            printf("[llopenReceiver] Read %x\n", input[0]);
         }
 
         switch (state)
@@ -146,7 +154,7 @@ int llopen_receiver(LinkLayer connectionParameters)
         }
         case FLAG_RCV:
         {
-            if (input[0] == A_SET)
+            if (input[0] == CMD_TX)
                 state = A_RCV;
             else if (input[0] != FLAG)
                 state = START_ST;
@@ -154,7 +162,7 @@ int llopen_receiver(LinkLayer connectionParameters)
         }
         case A_RCV:
         {
-            if (input[0] == C_SET)
+            if (input[0] == CMD_TX)
                 state = C_RCV;
             else if (input[0] == FLAG)
                 state = FLAG_RCV;
@@ -164,7 +172,7 @@ int llopen_receiver(LinkLayer connectionParameters)
         }
         case C_RCV:
         {
-            if (input[0] == BCC1_SET)
+            if (input[0] == (CMD_TX ^ C_SET))
                 state = BCC_OK;
             else if (input[0] == FLAG)
                 state = FLAG_RCV;
@@ -176,12 +184,12 @@ int llopen_receiver(LinkLayer connectionParameters)
         {
             if (input[0] == FLAG)
             {
-                printf("[llopen_receiver] Read SET\n");
+                printf("[llopenReceiver] Read SET\n");
 
                 unsigned char UA[5] = {FLAG, 0x03, 0x07, 0x03 ^ 0x07, FLAG};
                 int bytes = write(fd, UA, 5);
                 sleep(1);
-                printf("[llopen_receiver] %d UA bytes written\n", bytes);
+                printf("[llopenReceiver] %d UA bytes written\n", bytes);
 
                 STOP = TRUE;
             }
@@ -252,13 +260,113 @@ int llopen(LinkLayer connectionParameters)
 
     printf("[llopen] New termios structure set\n");
 
+    numRetransmissions = connectionParameters.nRetransmissions;
+    timeout = connectionParameters.timeout;
+
     switch (connectionParameters.role)
     {
     case LlTx:
-        return llopen_transmitter(connectionParameters);
+        return llopenTransmitter(connectionParameters);
     case LlRx:
-        return llopen_receiver(connectionParameters);
+        return llopenReceiver(connectionParameters);
     }
+    return -1;
+}
+
+int llwriteSendFrame(unsigned char *frame, int frameSize)
+{
+    unsigned char expectedResponse = frameCountTx ? C_RR0 : C_RR1;
+    unsigned char rejection = frameCountTx ? C_REJ1 : C_REJ0;
+
+    // Set alarm function handler
+    (void)signal(SIGALRM, alarmHandler);
+
+    unsigned char input[1] = {0};
+    unsigned char state = START_ST;
+    alarmEnabled = FALSE;
+    alarmCount = 0;
+
+    while (alarmCount < numRetransmissions)
+    {
+        if (alarmEnabled == FALSE)
+        {
+            alarm(timeout); // Set alarm to be triggered in timeout seconds
+            alarmEnabled = TRUE;
+
+            int write_bytes = write(fd, frame, frameSize);
+            sleep(1);
+            printf("[llwriteSendFrame] %d bytes written\n", write_bytes);
+
+            /*
+            for (int i = 0; i < bufSize + 6; i++)
+            {
+                printf("[llwrite] 0x%02X\n", infFrame[i]);
+            }*/
+        }
+
+        // Returns after a char has been input
+        int read_bytes = read(fd, input, 1);
+        if (read_bytes)
+        {
+            printf("[llwriteSendFrame] Read %u\n", input[0]);
+        }
+
+        switch (state)
+        {
+        case START_ST:
+        {
+            if (input[0] == FLAG)
+                state = FLAG_RCV;
+            break;
+        }
+        case FLAG_RCV:
+        {
+            if (input[0] == ANS_RX)
+                state = A_RCV;
+            else if (input[0] != FLAG)
+                state = START_ST;
+            break;
+        }
+        case A_RCV:
+        {
+            if (input[0] == expectedResponse)
+                state = C_RCV;
+            else if (input[0] == FLAG)
+                state = FLAG_RCV;
+            else if (input[0] == rejection)
+            {
+                printf("[llwriteSendFrame] Read RJ\n");
+                return -1;
+            }
+            else
+                state = START_ST;
+            break;
+        }
+        case C_RCV:
+        {
+            if (input[0] == (ANS_RX ^ expectedResponse))
+                state = BCC_OK;
+            else if (input[0] == FLAG)
+                state = FLAG_RCV;
+            else
+                state = START_ST;
+            break;
+        }
+        case BCC_OK:
+        {
+            if (input[0] == FLAG)
+            {
+                printf("[llwriteSendFrame] Read RR\n");
+                alarm(0);
+                return frameSize;
+            }
+            else
+                state = START_ST;
+            break;
+        }
+        }
+    }
+    // printf("[llwriteSendFrame] Obtained no appropriate response after numRetransmission alarms\n");
     return -1;
 }
 
@@ -267,9 +375,14 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    // TODO
+    unsigned char infFrame[6 + bufSize];
+    createInfFrame(buf, bufSize, frameCountTx, CMD_TX, infFrame);
 
-    return 0;
+    while (llwriteSendFrame(infFrame, bufSize + 6) == -1)
+    {
+        continue;
+    }
+    return bufSize + 6;
 }
 
 ////////////////////////////////////////////////
@@ -282,15 +395,15 @@ int llread(unsigned char *packet)
     return 0;
 }
 
-int llclose_transmitter(LinkLayer connectionParameters)
+int llcloseTransmitter(LinkLayer connectionParameters)
 {
-    printf("[llclose_transmitter] Reached llclose_transmitter\n");
+    printf("[llcloseTransmitter] Reached llcloseTransmitter\n");
 
     // Create the supervision frame
-    unsigned char superv_A = 0x03;
-    unsigned char superv_BCC1 = superv_A ^ DISC;
+    unsigned char supervA = 0x03;
+    unsigned char supervBCC1 = supervA ^ C_DISC;
 
-    unsigned char buf[5] = {FLAG, superv_A, DISC, superv_BCC1, FLAG};
+    unsigned char buf[5] = {FLAG, supervA, C_DISC, supervBCC1, FLAG};
 
     // Set alarm function handler
     (void)signal(SIGALRM, alarmHandler);
@@ -300,20 +413,20 @@ int llclose_transmitter(LinkLayer connectionParameters)
     alarmEnabled = FALSE;
     alarmCount = 0;
 
-    while (alarmCount < 3)
+    while (alarmCount < numRetransmissions)
     {
         if (alarmEnabled == FALSE)
         {
-            alarm(3); // Set alarm to be triggered in 3s
+            alarm(timeout); // Set alarm to be triggered in timeout seconds
             alarmEnabled = TRUE;
 
             int write_bytes = write(fd, buf, 5);
             sleep(1);
-            printf("[llclose_transmitter] %d bytes written\n", write_bytes);
+            printf("[llcloseTransmitter] %d bytes written\n", write_bytes);
 
             for (int i = 0; i < 5; i++)
             {
-                printf("[llclose_transmitter] 0x%02X\n", buf[i]);
+                printf("[llcloseTransmitter] 0x%02X\n", buf[i]);
             }
         }
 
@@ -321,7 +434,7 @@ int llclose_transmitter(LinkLayer connectionParameters)
         int read_bytes = read(fd, input, 1);
         if (read_bytes)
         {
-            printf("[llclose_transmitter] Read %x\n", input[0]);
+            printf("[llcloseTransmitter] Read %x\n", input[0]);
         }
 
         switch (state)
@@ -337,7 +450,7 @@ int llclose_transmitter(LinkLayer connectionParameters)
                 state = START_ST;
             break;
         case A_RCV:
-            if (input[0] == DISC)
+            if (input[0] == C_DISC)
                 state = C_RCV;
             else if (input[0] == FLAG)
                 state = FLAG_RCV;
@@ -345,7 +458,7 @@ int llclose_transmitter(LinkLayer connectionParameters)
                 state = START_ST;
             break;
         case C_RCV:
-            if (input[0] == (DISC ^ 0x01))
+            if (input[0] == (C_DISC ^ 0x01))
                 state = BCC_OK;
             else if (input[0] == FLAG)
                 state = FLAG_RCV;
@@ -355,12 +468,12 @@ int llclose_transmitter(LinkLayer connectionParameters)
         case BCC_OK:
             if (input[0] == FLAG)
             {
-                printf("[llclose_trasmitter] Read DISC\n");
+                printf("[llclose_transmitter] Read C_C_DISC\n");
 
                 unsigned char UA[5] = {FLAG, 0x01, C_UA, 0x01 ^ C_UA, FLAG};
                 int bytes = write(fd, UA, 5);
                 sleep(1);
-                printf("[llopen_trasmitter] %d UA bytes written\n", bytes);
+                printf("[llclose_transmitter] %d UA bytes written\n", bytes);
 
                 alarm(0);
                 return 1;
@@ -373,9 +486,9 @@ int llclose_transmitter(LinkLayer connectionParameters)
     return -1;
 }
 
-int llclose_receiver(LinkLayer connectionParameters)
+int llcloseReceiver(LinkLayer connectionParameters)
 {
-    printf("[llclose_receiver] Reached llclose_receiver\n");
+    printf("[llcloseReceiver] Reached llcloseReceiver\n");
 
     unsigned char state = START_ST;
     unsigned char input[1] = {0};
@@ -388,7 +501,7 @@ int llclose_receiver(LinkLayer connectionParameters)
         int read_bytes = read(fd, input, 1);
         if (read_bytes)
         {
-            printf("[llclose_receiver] Read %x\n", input[0]);
+            printf("[llcloseReceiver] Read %x\n", input[0]);
         }
 
         switch (state)
@@ -404,7 +517,7 @@ int llclose_receiver(LinkLayer connectionParameters)
                 state = START_ST;
             break;
         case A_RCV:
-            if (input[0] == DISC)
+            if (input[0] == C_DISC)
                 state = C_RCV;
             else if (input[0] == FLAG)
                 state = FLAG_RCV;
@@ -412,7 +525,7 @@ int llclose_receiver(LinkLayer connectionParameters)
                 state = START_ST;
             break;
         case C_RCV:
-            if (input[0] == (DISC ^ 0x03))
+            if (input[0] == (C_DISC ^ 0x03))
                 state = BCC_OK;
             else if (input[0] == FLAG)
                 state = FLAG_RCV;
@@ -422,7 +535,7 @@ int llclose_receiver(LinkLayer connectionParameters)
         case BCC_OK:
             if (input[0] == FLAG)
             {
-                printf("[llclose_receiver] Read DISC\n");
+                printf("[llcloseReceiver] Read C_C_DISC\n");
                 STOP = true;
             }
             else
@@ -430,11 +543,11 @@ int llclose_receiver(LinkLayer connectionParameters)
         }
     }
 
-    // Create the DISC frame
-    unsigned char superv_A = 0x01;
-    unsigned char superv_BCC1 = superv_A ^ DISC;
+    // Create the C_C_DISC frame
+    unsigned char supervA = 0x01;
+    unsigned char supervBCC1 = supervA ^ C_DISC;
 
-    unsigned char buf[5] = {FLAG, superv_A, DISC, superv_BCC1, FLAG};
+    unsigned char buf[5] = {FLAG, supervA, C_DISC, supervBCC1, FLAG};
 
     (void)signal(SIGALRM, alarmHandler);
 
@@ -443,21 +556,21 @@ int llclose_receiver(LinkLayer connectionParameters)
     alarmEnabled = FALSE;
     alarmCount = 0;
 
-    // Write DISC and wait for UA from transmitter
-    while (alarmCount < 3)
+    // Write C_C_DISC and wait for UA from transmitter
+    while (alarmCount < numRetransmissions)
     {
         if (alarmEnabled == FALSE)
         {
-            alarm(3); // Set alarm to be triggered in 3s
+            alarm(timeout); // Set alarm to be triggered in timeout seconds
             alarmEnabled = TRUE;
 
             int write_bytes = write(fd, buf, 5);
             sleep(1);
-            printf("[llclose_receiver] %d bytes written:\n", write_bytes);
+            printf("[llcloseReceiver] %d bytes written:\n", write_bytes);
 
             for (int i = 0; i < 5; i++)
             {
-                printf("[llclose_receiver] 0x%02X\n", buf[i]);
+                printf("[llcloseReceiver] 0x%02X\n", buf[i]);
             }
         }
 
@@ -465,7 +578,7 @@ int llclose_receiver(LinkLayer connectionParameters)
         int read_bytes = read(fd, input, 1);
         if (read_bytes)
         {
-            printf("[llclose_transmitter] Read 0x%x\n", input[0]);
+            printf("[llcloseTransmitter] Read 0x%x\n", input[0]);
         }
 
         switch (state)
@@ -509,7 +622,7 @@ int llclose_receiver(LinkLayer connectionParameters)
         {
             if (input[0] == FLAG)
             {
-                printf("[llclose_receiverer] Read UA\n");
+                printf("[llcloseReceiverer] Read UA\n");
                 alarm(0);
 
                 return 1;
@@ -534,11 +647,11 @@ int llclose(int showStatistics, LinkLayer connectionParameters)
     switch (connectionParameters.role)
     {
     case LlTx:
-        if (llclose_transmitter(connectionParameters) == -1)
+        if (llcloseTransmitter(connectionParameters) == -1)
             return -1;
         break;
     case LlRx:
-        if (llclose_receiver(connectionParameters) == -1)
+        if (llcloseReceiver(connectionParameters) == -1)
             return -1;
         break;
     }
@@ -555,7 +668,7 @@ int llclose(int showStatistics, LinkLayer connectionParameters)
     return 1;
 }
 
-StuffingAux stuff_byte(unsigned char byte)
+StuffingAux stuffByte(unsigned char byte)
 {
     StuffingAux result;
 
@@ -584,7 +697,7 @@ StuffingAux stuff_byte(unsigned char byte)
     }
 }
 
-StuffingAux destuff_byte(unsigned char byte1, unsigned char byte2)
+StuffingAux destuffByte(unsigned char byte1, unsigned char byte2)
 {
     StuffingAux result;
 
@@ -616,13 +729,12 @@ StuffingAux destuff_byte(unsigned char byte1, unsigned char byte2)
     return result;
 }
 
-void create_inf_frame(unsigned char *data, unsigned n, bool frame_num, unsigned char *result)
+void createInfFrame(const unsigned char *data, unsigned n, bool frameNum, AddressFieldType addressType, unsigned char *result)
 {
-    // TODO: Make a way to alter A by a parameter
     unsigned char header[5] = {FLAG,
-                               A_SENT_BY_TX,
-                               frame_num,
-                               A_SENT_BY_TX ^ frame_num};
+                               addressType,
+                               frameNum,
+                               addressType ^ frameNum};
 
     unsigned result_idx = 4; // Next idx on which to write data
     memcpy(result, header, 4);
@@ -634,7 +746,7 @@ void create_inf_frame(unsigned char *data, unsigned n, bool frame_num, unsigned 
 
     for (int i = 0; i < n; i++)
     {
-        stuffData = stuff_byte(data[i]);
+        stuffData = stuffByte(data[i]);
 
         if (stuffData.stuffed)
         {
@@ -653,7 +765,7 @@ void create_inf_frame(unsigned char *data, unsigned n, bool frame_num, unsigned 
         }
     }
 
-    StuffingAux stuffBCC2 = stuff_byte(bcc2);
+    StuffingAux stuffBCC2 = stuffByte(bcc2);
 
     if (stuffBCC2.stuffed)
     {
@@ -668,30 +780,30 @@ void create_inf_frame(unsigned char *data, unsigned n, bool frame_num, unsigned 
     result[result_idx] = FLAG;
 }
 
-void destuff_frame(unsigned char *frame, unsigned n, unsigned char *destuffed_frame)
+void destuffFrame(unsigned char *frame, unsigned n, unsigned char *destuffedFrame)
 {
     StuffingAux destuffData;
-    unsigned destuffed_idx = 0;
+    unsigned destuffedIdx = 0;
 
     for (int i = 0; i < n; i++)
     {
         // We will only analyse the last byte if the previous one wasn't stuffed, that means the last byte will alawyas be destuffed
         if (i == n - 1)
         {
-            destuffed_frame[destuffed_idx] = frame[i];
+            destuffedFrame[destuffedIdx] = frame[i];
         }
         else
         {
-            destuffData = destuff_byte(frame[i], frame[i + 1]);
+            destuffData = destuffByte(frame[i], frame[i + 1]);
 
             if (destuffData.stuffed)
             {
-                destuffed_frame[destuffed_idx++] = destuffData.byte1;
+                destuffedFrame[destuffedIdx++] = destuffData.byte1;
                 i++; // Skip the next frame because it was part of the stuffing
             }
             else
             {
-                destuffed_frame[destuffed_idx++] = frame[i];
+                destuffedFrame[destuffedIdx++] = frame[i];
             }
         }
     }

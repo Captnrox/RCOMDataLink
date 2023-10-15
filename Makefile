@@ -20,8 +20,9 @@ RX_FILE = penguin-received.gif
 .PHONY: all
 all: $(BIN)/main $(BIN)/cable
 
+# Added -lm flag to search math library while linking
 $(BIN)/main: main.c $(SRC)/*.c
-	$(CC) $(CFLAGS) -o $@ $^ -I$(INCLUDE)
+	$(CC) $(CFLAGS) -o $@ $^ -I$(INCLUDE) -lm
 
 $(BIN)/cable: $(CABLE_DIR)/cable.c
 	$(CC) $(CFLAGS) -o $@ $^
