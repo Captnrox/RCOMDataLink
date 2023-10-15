@@ -37,7 +37,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         fseek(file, 0L, SEEK_END);
         long int fileSize = ftell(file); // File size in bytes
-        fclose(file);
 
         printf("File size: %ld\n", fileSize);
 
@@ -66,12 +65,46 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             startControl[idx] = filename[i];
         }
 
-        llwrite(startControl, 3 + L1 + 2 + L2);
-         break;
+        while (llwrite(startControl, 3 + L1 + 2 + L2) == -1)
+            ;
+
+        while (fileSize > 0)
+        {
+            unsigned char data[MAX_PAYLOAD_SIZE];
+            unsigned int numBytes = fileSize < MAX_PAYLOAD_SIZE - 3 ? fileSize : MAX_PAYLOAD_SIZE - 3;
+            data[0] = 1;
+
+            data[1] = (numBytes >> 8) & 0xff;
+            data[2] = numBytes & 0xff;
+            fread(data + 3, sizeof(unsigned char), numBytes, file);
+
+            while (llwrite(data, 3 + numBytes) == -1)
+                ;
+            fileSize -= numBytes;
+        }
+
+        startControl[0] = 3; // TODO: Change this
+        while (llwrite(startControl, 3 + L1 + 2 + L2) == -1)
+            ;
+        fclose(file);
+
+        break;
     }
     case LlRx:
         unsigned char packet[MAX_PAYLOAD_SIZE];
-        llread(packet);
+        while (llread(packet) == -1) // Read start control packet
+            ;
+        // QUESTION: Depois de ler os dados do control packet, o que fazer com eles? Não nos parece ser preciso para nada
+        FILE *outputFile = fopen(filename, "wb+");
+
+        while (packet[0] != 3) // While we haven't received a control end packet
+        {
+            while (llread(packet) == -1)
+                ;
+
+            unsigned char *dataStart = packet + 3;
+            fwrite(dataStart, sizeof(unsigned char), MAX_PAYLOAD_SIZE - 3, outputFile); // TODO: The file might not be a multiple of 997 so the last packet will have a lot of empty space
+        }                                                           
         break;
     }
 

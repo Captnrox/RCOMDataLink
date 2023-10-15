@@ -390,10 +390,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     unsigned char infFrame[6 + 2 * bufSize];
     createInfFrame(buf, bufSize, frameCountTx, CMD_TX, infFrame);
 
-    while (llwriteSendFrame(infFrame, 2 * bufSize + 6) == -1)
-    {
-        continue;
-    }
+    while (llwriteSendFrame(infFrame, 2 * bufSize + 6) == -1); //QUESTION: Deve ser a application layer a rechamar o llwrite em caso de erro, ou aqui? (AQui poupa criar a frame outra vez)
     return bufSize + 6;
 }
 
