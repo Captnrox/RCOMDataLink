@@ -57,6 +57,7 @@ typedef struct
 #define FALSE 0
 #define TRUE 1
 #define FLAG 0x7E
+#define ESC 0x7D
 
 // ADDRESS FIELD TYPES
 #define CMD_TX 0x03
@@ -73,6 +74,9 @@ typedef struct
 #define C_REJ1 0x81
 #define C_DISC 0x0B
 
+// INFORMATION FRAMES
+#define C_FRAME0 0x00
+#define C_FRAME1 0x40
 
 // STATE MACHINES
 #define START_ST 0
@@ -80,6 +84,8 @@ typedef struct
 #define A_RCV 2
 #define C_RCV 3
 #define BCC_OK 4
+#define READING_DATA 5
+#define DESTUFFING 6
 
 // Open a connection using the "port" parameters defined in struct linkLayer.
 // Return "1" on success or "-1" on error.
@@ -129,6 +135,10 @@ void createInfFrame(const unsigned char *data, unsigned n, bool frameNum, Addres
 // Destuffs the bytes in a frame
 // Places the result in destuffed_frame, an array corresponding to the frame information after translation
 void destuffFrame(unsigned char *frame, unsigned n, unsigned char *destuffed_frame);
+
+//Creates a supervision frame for receiver replies to information frames.
+// Returns the number of bytes written (5) in success or -1 if theres any errors
+int sendReceiverResponse(unsigned char C);
 
 // Handles alarm interrupts
 void alarmHandler(int signal);

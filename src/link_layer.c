@@ -28,6 +28,12 @@ void alarmHandler(int signal)
     printf("Alarm #%d\n", alarmCount);
 }
 
+int sendReceiverResponse(unsigned char C)
+{
+    unsigned char frame[5] = {FLAG, ANS_RX, C, ANS_RX ^ C, FLAG};
+    return write(fd, frame, 5);
+}
+
 int llopenTransmitter(LinkLayer connectionParameters)
 {
     printf("Reached llopenTransmitter\n");
@@ -358,6 +364,7 @@ int llwriteSendFrame(unsigned char *frame, int frameSize)
             {
                 printf("[llwriteSendFrame] Read RR\n");
                 alarm(0);
+                frameCountTx = !frameCountTx;
                 return frameSize;
             }
             else
@@ -366,7 +373,7 @@ int llwriteSendFrame(unsigned char *frame, int frameSize)
         }
         }
     }
-    // printf("[llwriteSendFrame] Obtained no appropriate response after numRetransmission alarms\n");
+    printf("[llwriteSendFrame] Obtained no appropriate response after numRetransmission alarms\n");
     return -1;
 }
 
@@ -390,9 +397,132 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
-    // TODO
+    unsigned char input[1] = {0};
+    unsigned char state = START_ST;
+    STOP = FALSE;
 
-    return 0;
+    bool receivedFrame;
+
+    unsigned int packetIdx = 0;
+    unsigned char bcc2;
+
+    while (STOP == FALSE) // Pode dar ciclo infinito ao receber tramas erradas e o tx parar de mandar depois das retransmissões
+    {
+        // Returns after a char has been input
+        int read_bytes = read(fd, input, 1);
+        if (read_bytes)
+        {
+            printf("[llread] Read %u\n", input[0]);
+        }
+
+        switch (state)
+        {
+        case START_ST:
+        {
+            if (input[0] == FLAG)
+                state = FLAG_RCV;
+            break;
+        }
+        case FLAG_RCV:
+        {
+            if (input[0] == CMD_TX)
+                state = A_RCV;
+            else if (input[0] != FLAG)
+                state = START_ST;
+            break;
+        }
+        case A_RCV:
+        {
+            if (input[0] == C_FRAME0)
+            {
+                receivedFrame = 0;
+                state = C_RCV;
+            }
+            else if (input[0] == C_FRAME1)
+            {
+                receivedFrame = 1;
+                state = C_RCV;
+            }
+            else if (input[0] == FLAG)
+                state = FLAG_RCV;
+            else
+                state = START_ST;
+            break;
+        }
+        case C_RCV:
+        {
+            unsigned int receivedC = receivedFrame ? 0x40 : 0x00;
+            if (input[0] == (CMD_TX ^ receivedC))
+                state = READING_DATA;
+            else if (input[0] == FLAG)
+                state = FLAG_RCV;
+            else
+                state = START_ST;
+            break;
+        }
+        case READING_DATA:
+        {
+            if (input[0] == ESC)
+                state = DESTUFFING;
+            else if (input[0] == FLAG)
+            {
+                unsigned char receivedBcc2 = packet[packetIdx - 1];
+                bcc2 = packet[0];
+
+                packet[packetIdx - 1] = '\0'; //Remove read bcc2 because the application layer only wants the data packets
+
+                for (int i = 1; i < packetIdx - 1; i++) //Start in index 1 because index 0 is hte value that initializes bcc2
+                {
+                    bcc2 = bcc2 ^ packet[i];
+                }
+
+                if (bcc2 == receivedBcc2) // Frame data has NO errors
+                {
+                    if (receivedFrame == frameCountRx)
+                    {
+                        frameCountRx = !frameCountRx; // Updated value with what frame receiver expects next
+                        sendReceiverResponse(frameCountRx ? C_RR1 : C_RR0);
+                        return packetIdx;
+                    }
+                    else // Duplicate Frame
+                    {
+                        sendReceiverResponse(frameCountRx ? C_RR1 : C_RR0); // Receiver is still expecting the same frame, because it just got a duplicate
+                        return -1;
+                    }
+                }
+                else // Frame data HAS errors
+                {
+                    if (receivedFrame == frameCountRx)
+                    {
+                        sendReceiverResponse(frameCountRx ? C_REJ1 : C_REJ0); // Receiver is still expecting the same frame, because it just got a frame with errors
+                        return -1;
+                    }
+                    else // Duplicate Frame
+                    {
+                        sendReceiverResponse(frameCountRx ? C_RR1 : C_RR0); // Receiver is still expecting the same frame, because it just got a duplicate
+                        return -1;
+                    }
+                }
+            }
+            else
+                packet[packetIdx++] = input[0];
+            break;
+        }
+        case DESTUFFING:
+        {
+            if (input[0] == 0x5E)
+                packet[packetIdx++] = 0x7E;
+            else if (input[0] == 0x5D)
+                packet[packetIdx++] = 0x7D;
+            else
+            {
+                printf("[llread] An ESC that wasn't stuffed (?)\n");
+            }
+            break;
+        }
+        }
+    }
+    return -1;
 }
 
 int llcloseTransmitter(LinkLayer connectionParameters)
