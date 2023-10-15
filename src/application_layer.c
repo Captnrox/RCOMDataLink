@@ -37,6 +37,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         fseek(file, 0L, SEEK_END);
         long int fileSize = ftell(file); // File size in bytes
+        fseek(file, 0L, SEEK_SET);       // Reset file descriptor to start of file
 
         printf("File size: %ld\n", fileSize);
 
@@ -68,37 +69,60 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         while (llwrite(startControl, 3 + L1 + 2 + L2) == -1)
             ;
         printf("Wrote control packet\n");
+        
+        /*
+             (()__(()
+             /       \
+            ( /    \  \
+             \ o o    /
+             (_()_)__/ \
+            / _,==.____ \
+           (   |--|      )
+           /\_.|__|'-.__/\_
+          / (        /     \
+          \  \      (      /
+           )  '._____)    /
+        (((____.--(((____/o
+        */
 
-        while (fileSize > 0)
+        unsigned char *fileContent = (unsigned char *)malloc(sizeof(unsigned char) * fileSize);
+        fread(fileContent, sizeof(unsigned char), fileSize, file);
+
+        long int leftoverBytes = fileSize;
+
+        while (leftoverBytes > 0)
         {
-            printf("fileSize: %d\n", fileSize);
-            unsigned char data[MAX_PAYLOAD_SIZE] = {0};
-            unsigned int numBytes = fileSize < MAX_PAYLOAD_SIZE - 3 ? fileSize : MAX_PAYLOAD_SIZE - 3;
-            data[0] = 1;
+            printf("fileSize: %d\n", leftoverBytes);
+            unsigned int numBytes = leftoverBytes < MAX_PAYLOAD_SIZE - 3 ? leftoverBytes : MAX_PAYLOAD_SIZE - 3;
+            unsigned char data[numBytes];
 
+            data[0] = 1;
             data[1] = (numBytes >> 8) & 0xff;
             data[2] = numBytes & 0xff;
-            fread(data + 3, sizeof(unsigned char), numBytes, file);
+            memcpy(data + 3, fileContent, numBytes);
 
-           /*  for (int i = 0; i < MAX_PAYLOAD_SIZE; i++)
+            for (int i = 0; i < MAX_PAYLOAD_SIZE; i++)
             {
-                printf("Data being sent: %x\n", data[i]);
-            } */
+                printf("%x", data[i]);
+            }
 
             while (llwrite(data, 3 + numBytes) == -1)
                 ;
             printf("Wrote frame\n");
-            fileSize -= numBytes;
+            leftoverBytes -= numBytes;
+            fileContent += numBytes;
         }
 
         startControl[0] = 3; // TODO: Change this
         while (llwrite(startControl, 3 + L1 + 2 + L2) == -1)
             ;
         fclose(file);
+        //free(fileContent);
 
         break;
     }
     case LlRx:
+        int i = 0;
         unsigned char packet[MAX_PAYLOAD_SIZE];
         while (llread(packet) == -1) // Read start control packet
             ;
@@ -111,9 +135,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             while (llread(packet) == -1)
                 ;
             printf("Read packet\n");
+            unsigned int K = 256 * packet[1] + packet[2];
 
             unsigned char *dataStart = packet + 3;
-            fwrite(dataStart, sizeof(unsigned char), MAX_PAYLOAD_SIZE - 3, outputFile); // TODO: The file might not be a multiple of 997 so the last packet will have a lot of empty space
+            fwrite(dataStart, sizeof(unsigned char), K, outputFile); // TODO: The file might not be a multiple of 997 so the last packet will have a lot of empty space
+            i++;
         }
         break;
     }
