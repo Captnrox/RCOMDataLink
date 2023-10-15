@@ -292,6 +292,11 @@ int llwriteSendFrame(unsigned char *frame, int frameSize)
     alarmEnabled = FALSE;
     alarmCount = 0;
 
+    for (int i = 0; i < frameSize; i++)
+    {
+        printf("Frame: %x\n", frame[i]);
+    }
+
     while (alarmCount < numRetransmissions)
     {
         if (alarmEnabled == FALSE)
@@ -382,10 +387,10 @@ int llwriteSendFrame(unsigned char *frame, int frameSize)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    unsigned char infFrame[6 + bufSize];
+    unsigned char infFrame[6 + 2 * bufSize];
     createInfFrame(buf, bufSize, frameCountTx, CMD_TX, infFrame);
 
-    while (llwriteSendFrame(infFrame, bufSize + 6) == -1)
+    while (llwriteSendFrame(infFrame, 2 * bufSize + 6) == -1)
     {
         continue;
     }
@@ -413,6 +418,7 @@ int llread(unsigned char *packet)
         if (read_bytes)
         {
             printf("[llread] Read %u\n", input[0]);
+            printf("%d\n", state);
         }
 
         switch (state)
@@ -469,9 +475,9 @@ int llread(unsigned char *packet)
                 unsigned char receivedBcc2 = packet[packetIdx - 1];
                 bcc2 = packet[0];
 
-                packet[packetIdx - 1] = '\0'; //Remove read bcc2 because the application layer only wants the data packets
+                packet[packetIdx - 1] = '\0'; // Remove read bcc2 because the application layer only wants the data packets
 
-                for (int i = 1; i < packetIdx - 1; i++) //Start in index 1 because index 0 is hte value that initializes bcc2
+                for (int i = 1; i < packetIdx - 1; i++) // Start in index 1 because index 0 is hte value that initializes bcc2
                 {
                     bcc2 = bcc2 ^ packet[i];
                 }
@@ -505,18 +511,32 @@ int llread(unsigned char *packet)
                 }
             }
             else
+            {
+                printf("Read Data increases idx\n");
                 packet[packetIdx++] = input[0];
+            }
             break;
         }
         case DESTUFFING:
         {
             if (input[0] == 0x5E)
+            {
+                printf("Idx: %d\n", packetIdx);
                 packet[packetIdx++] = 0x7E;
+                state = READING_DATA;
+                printf("Destuffing increases idx\n");
+            }
             else if (input[0] == 0x5D)
+            {
+                printf("Idx: %d\n", packetIdx);
                 packet[packetIdx++] = 0x7D;
+                state = READING_DATA;
+                printf("Destuffing increases idx\n");
+            }
             else
             {
                 printf("[llread] An ESC that wasn't stuffed (?)\n");
+                state = READING_DATA;
             }
             break;
         }
@@ -808,7 +828,7 @@ StuffingAux stuffByte(unsigned char byte)
     {
         result.stuffed = true;
         result.byte1 = 0x7D;
-        result.byte1 = 0x5E;
+        result.byte2 = 0x5E;
         return result;
     }
     case 0x7D:
@@ -861,13 +881,18 @@ StuffingAux destuffByte(unsigned char byte1, unsigned char byte2)
 
 void createInfFrame(const unsigned char *data, unsigned n, bool frameNum, AddressFieldType addressType, unsigned char *result)
 {
-    unsigned char header[5] = {FLAG,
+    unsigned char header[4] = {FLAG,
                                addressType,
                                frameNum,
                                addressType ^ frameNum};
 
     unsigned result_idx = 4; // Next idx on which to write data
     memcpy(result, header, 4);
+
+    for (int i = 0; i < 4; i++)
+    {
+        printf("Frame header: %x\n", result[i]);
+    }
 
     unsigned char bcc2 = data[0];
 
@@ -908,6 +933,11 @@ void createInfFrame(const unsigned char *data, unsigned n, bool frameNum, Addres
     }
 
     result[result_idx] = FLAG;
+
+    for (int i = 0; i < 16; i++)
+    {
+        printf("Inf frame: %x\n", result[i]);
+    }
 }
 
 void destuffFrame(unsigned char *frame, unsigned n, unsigned char *destuffedFrame)

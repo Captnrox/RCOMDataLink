@@ -67,10 +67,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
 
         llwrite(startControl, 3 + L1 + 2 + L2);
-        break;
+         break;
     }
     case LlRx:
-
+        unsigned char packet[MAX_PAYLOAD_SIZE];
+        llread(packet);
         break;
     }
 
