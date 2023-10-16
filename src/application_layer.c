@@ -69,7 +69,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         while (llwrite(startControl, 3 + L1 + 2 + L2) == -1)
             ;
         printf("Wrote control packet\n");
-        
+
         /*
              (()__(()
              /       \
@@ -108,7 +108,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
             while (llwrite(data, 3 + numBytes) == -1)
                 ;
-            printf("Wrote frame\n");
+            printf("Wrote frame, %d bytes\n", numBytes);
             leftoverBytes -= numBytes;
             fileContent += numBytes;
         }
@@ -117,12 +117,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         while (llwrite(startControl, 3 + L1 + 2 + L2) == -1)
             ;
         fclose(file);
-        //free(fileContent);
+        // free(fileContent);
 
         break;
     }
     case LlRx:
-        int i = 0;
         unsigned char packet[MAX_PAYLOAD_SIZE];
         while (llread(packet) == -1) // Read start control packet
             ;
@@ -137,9 +136,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             printf("Read packet\n");
             unsigned int K = 256 * packet[1] + packet[2];
 
-            unsigned char *dataStart = packet + 3;
-            fwrite(dataStart, sizeof(unsigned char), K, outputFile); // TODO: The file might not be a multiple of 997 so the last packet will have a lot of empty space
-            i++;
+            if (packet[0] != 3) //If the packet is not a stop control packet, write the data to the output file
+            {
+                printf("%d\n", K);
+                unsigned char *dataStart = packet + 3;
+                fwrite(dataStart, sizeof(unsigned char), K, outputFile); // TODO: The file might not be a multiple of 997 so the last packet will have a lot of empty space
+            }
         }
         break;
     }
