@@ -127,7 +127,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         while (llread(packet) == -1) // Read start control packet
             ;
         printf("Read control packet\n");
-        // QUESTION: Depois de ler os dados do control packet, o que fazer com eles? Não nos parece ser preciso para nada
+        // TODO: Usar o nome recebido no control packet para saber onde escrever
         FILE *outputFile = fopen(filename, "wb+");
 
         while (packet[0] != 3) // While we haven't received a control end packet
@@ -141,7 +141,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             {
                 printf("%d\n", K);
                 unsigned char *dataStart = packet + 3;
-                fwrite(dataStart, sizeof(unsigned char), K, outputFile); // TODO: The file might not be a multiple of 997 so the last packet will have a lot of empty space
+                fwrite(dataStart, sizeof(unsigned char), K, outputFile); 
             }
         }
         break;

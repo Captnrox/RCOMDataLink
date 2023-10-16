@@ -342,6 +342,7 @@ int llwriteSendFrame(unsigned char *frame, int frameSize)
                 state = FLAG_RCV;
             else if (input[0] == rejection)
             {
+                // TODO: REJ is not being read before an alarm !!
                 printf("[llwriteSendFrame] Read RJ\n");
                 return -1;
             }
@@ -388,7 +389,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     createInfFrame(buf, bufSize, frameCountTx, CMD_TX, infFrame);
 
     while (llwriteSendFrame(infFrame, 2 * bufSize + 6) == -1)
-        ; // QUESTION: Deve ser a application layer a rechamar o llwrite em caso de erro, ou aqui? (AQui poupa criar a frame outra vez)
+        ; // TODO: Se o write falha o numero maximo de vezes, o emissor simplesmente retorna com erro
     return bufSize + 6;
 }
 
