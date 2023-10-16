@@ -122,6 +122,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         break;
     }
     case LlRx:
+    {
         unsigned char packet[MAX_PAYLOAD_SIZE];
         while (llread(packet) == -1) // Read start control packet
             ;
@@ -136,7 +137,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             printf("Read packet\n");
             unsigned int K = 256 * packet[1] + packet[2];
 
-            if (packet[0] != 3) //If the packet is not a stop control packet, write the data to the output file
+            if (packet[0] != 3) // If the packet is not a stop control packet, write the data to the output file
             {
                 printf("%d\n", K);
                 unsigned char *dataStart = packet + 3;
@@ -144,6 +145,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             }
         }
         break;
+    }
     }
 
     llclose(false, connectionParameters);

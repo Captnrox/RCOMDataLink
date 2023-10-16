@@ -416,136 +416,136 @@ int llread(unsigned char *packet)
             //     printf("[llread] Read %u\n", input[0]);
             if (state != 0)
                 printf("%d\n", state);
-        }
 
-        switch (state)
-        {
-        case START_ST:
-        {
-            if (input[0] == FLAG)
-                state = FLAG_RCV;
-            break;
-        }
-        case FLAG_RCV:
-        {
-            if (input[0] == CMD_TX)
-                state = A_RCV;
-            else if (input[0] != FLAG)
+            switch (state)
             {
-                printf("%x\n", input[0]);
-                printf("Going to start\n");
-                state = START_ST;
+            case START_ST:
+            {
+                if (input[0] == FLAG)
+                    state = FLAG_RCV;
+                break;
             }
-            break;
-        }
-        case A_RCV:
-        {
-            if (input[0] == C_FRAME0)
+            case FLAG_RCV:
             {
-                receivedFrame = 0;
-                state = C_RCV;
-            }
-            else if (input[0] == C_FRAME1)
-            {
-                receivedFrame = 1;
-                state = C_RCV;
-            }
-            else if (input[0] == FLAG)
-                state = FLAG_RCV;
-            else
-            {
-                printf("%x\n", input[0]);
-                printf("Going to start\n");
-                state = START_ST;
-            }
-            break;
-        }
-        case C_RCV:
-        {
-            unsigned int receivedC = receivedFrame ? 0x40 : 0x00;
-            if (input[0] == (CMD_TX ^ receivedC))
-                state = READING_DATA;
-            else if (input[0] == FLAG)
-                state = FLAG_RCV;
-            else
-                state = START_ST;
-            break;
-        }
-        case READING_DATA:
-        {
-            if (input[0] == ESC)
-                state = DESTUFFING;
-            else if (input[0] == FLAG)
-            {
-                printf("Read whole input\n");
-                unsigned char receivedBcc2 = packet[packetIdx - 1];
-                bcc2 = packet[0];
-
-                packet[packetIdx - 1] = '\0'; // Remove read bcc2 because the application layer only wants the data packets
-
-                for (int i = 1; i < packetIdx - 1; i++) // Start in index 1 because index 0 is hte value that initializes bcc2
+                if (input[0] == CMD_TX)
+                    state = A_RCV;
+                else if (input[0] != FLAG)
                 {
-                    bcc2 = bcc2 ^ packet[i];
+                    printf("%x\n", input[0]);
+                    printf("Going to start\n");
+                    state = START_ST;
                 }
+                break;
+            }
+            case A_RCV:
+            {
+                if (input[0] == C_FRAME0)
+                {
+                    receivedFrame = 0;
+                    state = C_RCV;
+                }
+                else if (input[0] == C_FRAME1)
+                {
+                    receivedFrame = 1;
+                    state = C_RCV;
+                }
+                else if (input[0] == FLAG)
+                    state = FLAG_RCV;
+                else
+                {
+                    printf("%x\n", input[0]);
+                    printf("Going to start\n");
+                    state = START_ST;
+                }
+                break;
+            }
+            case C_RCV:
+            {
+                unsigned int receivedC = receivedFrame ? 0x40 : 0x00;
+                if (input[0] == (CMD_TX ^ receivedC))
+                    state = READING_DATA;
+                else if (input[0] == FLAG)
+                    state = FLAG_RCV;
+                else
+                    state = START_ST;
+                break;
+            }
+            case READING_DATA:
+            {
+                if (input[0] == ESC)
+                    state = DESTUFFING;
+                else if (input[0] == FLAG)
+                {
+                    printf("Read whole input\n");
+                    unsigned char receivedBcc2 = packet[packetIdx - 1];
+                    bcc2 = packet[0];
 
-                if (bcc2 == receivedBcc2) // Frame data has NO errors
-                {
-                    if (receivedFrame == frameCountRx)
+                    packet[packetIdx - 1] = '\0'; // Remove read bcc2 because the application layer only wants the data packets
+
+                    for (int i = 1; i < packetIdx - 1; i++) // Start in index 1 because index 0 is hte value that initializes bcc2
                     {
-                        frameCountRx = !frameCountRx; // Updated value with what frame receiver expects next
-                        sendReceiverResponse(frameCountRx ? C_RR1 : C_RR0);
-                        return packetIdx;
+                        bcc2 = bcc2 ^ packet[i];
                     }
-                    else // Duplicate Frame
+
+                    if (bcc2 == receivedBcc2) // Frame data has NO errors
                     {
-                        sendReceiverResponse(frameCountRx ? C_RR1 : C_RR0); // Receiver is still expecting the same frame, because it just got a duplicate
-                        return -1;
+                        if (receivedFrame == frameCountRx)
+                        {
+                            frameCountRx = !frameCountRx; // Updated value with what frame receiver expects next
+                            sendReceiverResponse(frameCountRx ? C_RR1 : C_RR0);
+                            return packetIdx;
+                        }
+                        else // Duplicate Frame
+                        {
+                            sendReceiverResponse(frameCountRx ? C_RR1 : C_RR0); // Receiver is still expecting the same frame, because it just got a duplicate
+                            return -1;
+                        }
+                    }
+                    else // Frame data HAS errors
+                    {
+                        if (receivedFrame == frameCountRx)
+                        {
+                            sendReceiverResponse(frameCountRx ? C_REJ1 : C_REJ0); // Receiver is still expecting the same frame, because it just got a frame with errors
+                            return -1;
+                        }
+                        else // Duplicate Frame
+                        {
+                            sendReceiverResponse(frameCountRx ? C_RR1 : C_RR0); // Receiver is still expecting the same frame, because it just got a duplicate
+                            return -1;
+                        }
                     }
                 }
-                else // Frame data HAS errors
+                else
                 {
-                    if (receivedFrame == frameCountRx)
-                    {
-                        sendReceiverResponse(frameCountRx ? C_REJ1 : C_REJ0); // Receiver is still expecting the same frame, because it just got a frame with errors
-                        return -1;
-                    }
-                    else // Duplicate Frame
-                    {
-                        sendReceiverResponse(frameCountRx ? C_RR1 : C_RR0); // Receiver is still expecting the same frame, because it just got a duplicate
-                        return -1;
-                    }
+                    printf("Read Data increases idx\n");
+                    packet[packetIdx++] = input[0];
                 }
+                break;
             }
-            else
+            case DESTUFFING:
             {
-                printf("Read Data increases idx\n");
-                packet[packetIdx++] = input[0];
+                if (input[0] == 0x5E)
+                {
+                    printf("Idx: %d\n", packetIdx);
+                    packet[packetIdx++] = 0x7E;
+                    state = READING_DATA;
+                    printf("Destuffing increases idx\n");
+                }
+                else if (input[0] == 0x5D)
+                {
+                    printf("Idx: %d\n", packetIdx);
+                    packet[packetIdx++] = 0x7D;
+                    state = READING_DATA;
+                    printf("Destuffing increases idx\n");
+                }
+                else
+                {
+                    printf("[llread] An ESC that wasn't stuffed (?)\n");
+                    state = READING_DATA;
+                }
+                break;
             }
-            break;
-        }
-        case DESTUFFING:
-        {
-            if (input[0] == 0x5E)
-            {
-                printf("Idx: %d\n", packetIdx);
-                packet[packetIdx++] = 0x7E;
-                state = READING_DATA;
-                printf("Destuffing increases idx\n");
             }
-            else if (input[0] == 0x5D)
-            {
-                printf("Idx: %d\n", packetIdx);
-                packet[packetIdx++] = 0x7D;
-                state = READING_DATA;
-                printf("Destuffing increases idx\n");
-            }
-            else
-            {
-                printf("[llread] An ESC that wasn't stuffed (?)\n");
-                state = READING_DATA;
-            }
-            break;
-        }
         }
     }
     return -1;
