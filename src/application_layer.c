@@ -11,8 +11,6 @@ unsigned int bytesToRepresent(long int n)
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
 {
-    printf("Reached applicationLayer\n");
-
     LinkLayer connectionParameters;
     strcpy(connectionParameters.serialPort, serialPort);
     connectionParameters.role = strcmp(role, "tx") ? LlRx : LlTx;
@@ -39,36 +37,34 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         long int fileSize = ftell(file); // File size in bytes
         fseek(file, 0L, SEEK_SET);       // Reset file descriptor to start of file
 
-        printf("File size: %ld\n", fileSize);
-
         unsigned char L1 = bytesToRepresent(fileSize);
         unsigned char L2 = strlen(filename);
 
-        printf("L1: %d L2: %d\n", L1, L2);
+        unsigned char control[3 + L1 + 2 + L2];
 
-        unsigned char startControl[3 + L1 + 2 + L2];
-
-        startControl[0] = (unsigned char)CTRL_START;
-        startControl[1] = (unsigned char)T_SIZE;
-        startControl[2] = L1;
+        control[0] = (unsigned char)CTRL_START;
+        control[1] = (unsigned char)T_SIZE;
+        control[2] = L1;
         unsigned int idx = 3;
 
-        for (int i = L1; i >= 0; i--, idx++)
+        for (int i = L1; i > 0; i--, idx++)
         {
-            startControl[idx] = (fileSize >> (8 * i)) & 0xff;
+            control[idx] = (fileSize >> (8 * i)) & 0xff;
         }
-
-        startControl[idx++] = T_NAME;
-        startControl[idx++] = L2;
+        control[idx++] = T_NAME;
+        control[idx++] = L2;
 
         for (int i = 0; i < L2; i++, idx++)
         {
-            startControl[idx] = filename[i];
+            control[idx] = filename[i];
         }
 
-        while (llwrite(startControl, 3 + L1 + 2 + L2) == -1)
-            ;
-        printf("Wrote control packet\n");
+        if (llwrite(control, 3 + L1 + 2 + L2) == -1)
+        {
+            printf("[application_layer] Error: Transmitter obtained no response after alarms. Exiting program.\n");
+            exit(-1);
+        }
+        printf("[application_layer] Wrote start control packet\n\n");
 
         /*
              (()__(()
@@ -92,7 +88,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         while (leftoverBytes > 0)
         {
-            printf("fileSize: %d\n", leftoverBytes);
+            printf("Progress: %ld out of %ld bytes\n\n", fileSize - leftoverBytes, fileSize);
             unsigned int numBytes = leftoverBytes < MAX_PAYLOAD_SIZE - 3 ? leftoverBytes : MAX_PAYLOAD_SIZE - 3;
             unsigned char data[numBytes];
 
@@ -101,24 +97,27 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             data[2] = numBytes & 0xff;
             memcpy(data + 3, fileContent, numBytes);
 
-            for (int i = 0; i < MAX_PAYLOAD_SIZE; i++)
+            if (llwrite(data, 3 + numBytes) == -1)
             {
-                printf("%x", data[i]);
+                printf("[application_layer] Error: Transmitter obtained no response after alarms. Exiting program.\n");
+                fclose(file);
+                exit(-1);
             }
 
-            while (llwrite(data, 3 + numBytes) == -1)
-                ;
-            printf("Wrote frame, %d bytes\n", numBytes);
+            printf("[application_layer] Wrote frame of %d byte(s)\n\n", numBytes);
             leftoverBytes -= numBytes;
             fileContent += numBytes;
         }
 
-        startControl[0] = 3; // TODO: Change this
-        while (llwrite(startControl, 3 + L1 + 2 + L2) == -1)
-            ;
+        control[0] = 3;
+        if (llwrite(control, 3 + L1 + 2 + L2) == -1)
+        {
+            printf("[application_layer] Error: Transmitter obtained no response after alarms. Exiting program.\n");
+            fclose(file);
+            exit(-1);
+        }
+        printf("[application_layer] Wrote end control packet\n");
         fclose(file);
-        // free(fileContent);
-
         break;
     }
     case LlRx:
@@ -126,33 +125,46 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         unsigned char packet[MAX_PAYLOAD_SIZE];
         while (llread(packet) == -1) // Read start control packet
             ;
-        printf("Read control packet\n");
-        // TODO: Usar o nome recebido no control packet para saber onde escrever
-        FILE *outputFile = fopen(filename, "wb+");
+        printf("\n[application_layer] Read start control packet\n");
+
+        unsigned int numFieldBytes = packet[2];
+        unsigned int numNameBytes = packet[2 + numFieldBytes + 2];
+        unsigned char receiverFilename[numNameBytes + 10]; // Initial filename + "-received" + '\0'
+        unsigned char addon[10] = "-received\0";
+
+        // Add "-received" to filename
+        for (int i = numFieldBytes + 5, j = 0; i <= numFieldBytes + 5 + numNameBytes; i++, j++)
+        {
+            if (packet[i] == '.')
+            {
+                for (int k = 0; k < 9; k++)
+                {
+                    receiverFilename[j++] = addon[k];
+                }
+            }
+            receiverFilename[j] = packet[i];
+        }
+        receiverFilename[numNameBytes + 9] = '\0';
+
+        FILE *outputFile = fopen(receiverFilename, "wb+");
 
         while (packet[0] != 3) // While we haven't received a control end packet
         {
             while (llread(packet) == -1)
                 ;
-            printf("Read packet\n");
-            unsigned int K = 256 * packet[1] + packet[2];
+            numFieldBytes = 256 * packet[1] + packet[2];
 
             if (packet[0] != 3) // If the packet is not a stop control packet, write the data to the output file
             {
-                printf("%d\n", K);
+                printf("\n[application_layer] Read packet\n");
                 unsigned char *dataStart = packet + 3;
-                fwrite(dataStart, sizeof(unsigned char), K, outputFile); 
+                fwrite(dataStart, sizeof(unsigned char), numFieldBytes, outputFile);
             }
         }
+        printf("\n[application_layer] Read end control packet\n");
         break;
     }
     }
 
     llclose(false, connectionParameters);
-
-    // Transmissor: llwrite() -> antes de escrever dá stuff and bytes (feito no PROTOCOL) (997 bytes por chunk)
-    // Primeiro manda um control  packet (que é uma information frame) com o tamanho e nome do ficheiro
-    // Recetor: llread() -> depois de ler os dados são destuffed (feito no PROTOCOL)
-
-    // unsigned char result[2 * n + 8]; // If we hypothetically have to escape every byte of the array, it will take up 2n. The header and ending take 6 bytes, or 8 if we have to stuff the BCCs
 }

@@ -104,7 +104,7 @@ int llopenReceiver(LinkLayer connectionParameters);
 int llwrite(const unsigned char *buf, int bufSize);
 
 // Auxiliary function that sends a frame and waits for the appropriate RR response from the receiver
-// Returns the number of frames sent if it got a succesful response, or -1 if the frame got rejected or if no response was read
+// Returns 1 if it got a succesful response, 0 if the frame got rejected or -1 if no response was read
 int llwriteSendFrame(unsigned char *frame, int frameSize);
 
 // Receive data in packet.
