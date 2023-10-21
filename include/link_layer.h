@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <time.h>
 
 typedef enum
 {

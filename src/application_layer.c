@@ -18,6 +18,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     connectionParameters.nRetransmissions = nTries;
     connectionParameters.timeout = timeout;
 
+    clock_t begin = clock();
+
     llopen(connectionParameters);
 
     // Send Start Control Packet
@@ -49,7 +51,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         for (int i = L1; i > 0; i--, idx++)
         {
-            control[idx] = (fileSize >> (8 * i)) & 0xff;
+            control[idx] = (fileSize >> (8 * (i - 1))) & 0xff;
         }
         control[idx++] = T_NAME;
         control[idx++] = L2;
@@ -88,7 +90,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         while (leftoverBytes > 0)
         {
-            printf("Progress: %ld out of %ld bytes\n\n", fileSize - leftoverBytes, fileSize);
+            if (SHOW_STATISTICS)
+                printf("Progress: %ld out of %ld bytes sent\n\n", fileSize - leftoverBytes, fileSize);
             unsigned int numBytes = leftoverBytes < MAX_PAYLOAD_SIZE - 3 ? leftoverBytes : MAX_PAYLOAD_SIZE - 3;
             unsigned char data[numBytes];
 
@@ -116,7 +119,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             fclose(file);
             exit(-1);
         }
-        printf("[application_layer] Wrote end control packet\n");
+        printf("[application_layer] Wrote end control packet\n\n");
         fclose(file);
         break;
     }
@@ -125,12 +128,19 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         unsigned char packet[MAX_PAYLOAD_SIZE];
         while (llread(packet) == -1) // Read start control packet
             ;
-        printf("\n[application_layer] Read start control packet\n");
+        printf("[application_layer] Read start control packet\n");
 
         unsigned int numFieldBytes = packet[2];
+        long int fileSize = 0;
+
+        for (int i = 3, exp = numFieldBytes - 1; i < 3 + numFieldBytes; i++, exp--)
+        {
+            fileSize += packet[i] << (8 * exp);
+        }
+
         unsigned int numNameBytes = packet[2 + numFieldBytes + 2];
         unsigned char receiverFilename[numNameBytes + 10]; // Initial filename + "-received" + '\0'
-        unsigned char addon[10] = "-received\0";
+        unsigned char addon[9] = "-received";
 
         // Add "-received" to filename
         for (int i = numFieldBytes + 5, j = 0; i <= numFieldBytes + 5 + numNameBytes; i++, j++)
@@ -146,25 +156,37 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
         receiverFilename[numNameBytes + 9] = '\0';
 
-        FILE *outputFile = fopen(receiverFilename, "wb+");
+        unsigned int leftoverBytes = fileSize;
+        FILE *outputFile = fopen((char *)receiverFilename, "wb+");
 
         while (packet[0] != 3) // While we haven't received a control end packet
         {
+            if (SHOW_STATISTICS)
+                printf("\nProgress: %ld out of %ld bytes read\n\n", fileSize - leftoverBytes, fileSize);
+
             while (llread(packet) == -1)
                 ;
             numFieldBytes = 256 * packet[1] + packet[2];
+            leftoverBytes -= numFieldBytes;
 
             if (packet[0] != 3) // If the packet is not a stop control packet, write the data to the output file
             {
-                printf("\n[application_layer] Read packet\n");
+                printf("[application_layer] Read packet\n");
                 unsigned char *dataStart = packet + 3;
                 fwrite(dataStart, sizeof(unsigned char), numFieldBytes, outputFile);
             }
         }
-        printf("\n[application_layer] Read end control packet\n");
+        printf("[application_layer] Read end control packet\n\n");
         break;
     }
     }
 
-    llclose(false, connectionParameters);
+    llclose(SHOW_STATISTICS, connectionParameters);
+
+    clock_t end = clock();
+    if (connectionParameters.role == LlRx && SHOW_STATISTICS)
+    {
+        const double timeSpent = (double)(end - begin) / CLOCKS_PER_SEC;
+        printf("\nTransmission complete in %.2f seconds\n", timeSpent);
+    }
 }

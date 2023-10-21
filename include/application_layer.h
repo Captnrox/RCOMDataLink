@@ -6,6 +6,10 @@
 
 #include <math.h>
 
+// SHOW FINAL STATISTICS
+
+#define SHOW_STATISTICS TRUE
+
 // CONTROL PACKET
 
 #define CTRL_START 2

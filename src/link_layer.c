@@ -7,7 +7,8 @@
 volatile int STOP = FALSE;
 int alarmEnabled = FALSE;
 int alarmCount = 0;
-
+double timeSum = 0;
+unsigned int frameCount = 0;
 int fd;
 
 struct termios oldtio;
@@ -25,7 +26,7 @@ void alarmHandler(int signal)
     alarmEnabled = FALSE;
     alarmCount++;
 
-    printf("Alarm #%d\n", alarmCount);
+    printf("\nAlarm #%d\n\n", alarmCount);
 }
 
 int sendReceiverResponse(unsigned char C)
@@ -52,7 +53,6 @@ int sendReceiverResponse(unsigned char C)
 
 int llopenTransmitter(LinkLayer connectionParameters)
 {
-    printf("Reached llopenTransmitter\n");
     // Create string to send
     unsigned char A_SEND = 0x03;
     unsigned char C_SEND = 0x03;
@@ -79,69 +79,69 @@ int llopenTransmitter(LinkLayer connectionParameters)
             sleep(1);
             printf("[llopenTransmitter] %d bytes written\n", write_bytes);
 
-            for (int i = 0; i < 5; i++)
-            {
-                printf("[llopenTransmitter] 0x%02X\n", buf[i]);
-            }
+            /*   for (int i = 0; i < 5; i++)
+              {
+                  printf("[llopenTransmitter] 0x%02X\n", buf[i]);
+              } */
         }
 
         // Returns after a char has been input
         int read_bytes = read(fd, input, 1);
         if (read_bytes)
         {
-            printf("[llopenTransmitter] Read %u\n", input[0]);
-        }
+            // printf("[llopenTransmitter] Read %u\n", input[0]);
 
-        switch (state)
-        {
-        case START_ST:
-        {
-            if (input[0] == FLAG)
-                state = FLAG_RCV;
-            break;
-        }
-        case FLAG_RCV:
-        {
-            if (input[0] == ANS_RX) // This is specific state machine for receiving UA that exits as soon as a wrong char is read, in a more general state machine, we don't verify what we receive here
-                state = A_RCV;
-            else if (input[0] != FLAG)
-                state = START_ST;
-            break;
-        }
-        case A_RCV:
-        {
-            if (input[0] == C_UA)
-                state = C_RCV;
-            else if (input[0] == FLAG)
-                state = FLAG_RCV;
-            else
-                state = START_ST;
-            break;
-        }
-        case C_RCV:
-        {
-            if (input[0] == (ANS_RX ^ C_UA)) // In a more general state machine, where we don't know what we are receiving, we compare the received BCC1 to the A (received) ^ C (received)
-                state = BCC_OK;
-            else if (input[0] == FLAG)
-                state = FLAG_RCV;
-            else
-                state = START_ST;
-            break;
-        }
-
-        case BCC_OK:
-        {
-            if (input[0] == FLAG)
+            switch (state)
             {
-                printf("[llopenTransmitter] Read UA\n");
-
-                alarm(0);
-                return 1;
+            case START_ST:
+            {
+                if (input[0] == FLAG)
+                    state = FLAG_RCV;
+                break;
             }
-            else
-                state = START_ST;
-            break;
-        }
+            case FLAG_RCV:
+            {
+                if (input[0] == ANS_RX) // This is specific state machine for receiving UA that exits as soon as a wrong char is read, in a more general state machine, we don't verify what we receive here
+                    state = A_RCV;
+                else if (input[0] != FLAG)
+                    state = START_ST;
+                break;
+            }
+            case A_RCV:
+            {
+                if (input[0] == C_UA)
+                    state = C_RCV;
+                else if (input[0] == FLAG)
+                    state = FLAG_RCV;
+                else
+                    state = START_ST;
+                break;
+            }
+            case C_RCV:
+            {
+                if (input[0] == (ANS_RX ^ C_UA)) // In a more general state machine, where we don't know what we are receiving, we compare the received BCC1 to the A (received) ^ C (received)
+                    state = BCC_OK;
+                else if (input[0] == FLAG)
+                    state = FLAG_RCV;
+                else
+                    state = START_ST;
+                break;
+            }
+
+            case BCC_OK:
+            {
+                if (input[0] == FLAG)
+                {
+                    printf("[llopenTransmitter] Read UA\n\n");
+
+                    alarm(0);
+                    return 1;
+                }
+                else
+                    state = START_ST;
+                break;
+            }
+            }
         }
     }
     return -1;
@@ -149,7 +149,6 @@ int llopenTransmitter(LinkLayer connectionParameters)
 
 int llopenReceiver(LinkLayer connectionParameters)
 {
-    printf("Reached llopenReceiver\n");
 
     // Loop for input
     unsigned char input[1] = {0};
@@ -163,64 +162,64 @@ int llopenReceiver(LinkLayer connectionParameters)
 
         if (read_bytes)
         {
-            printf("[llopenReceiver] Read %x\n", input[0]);
-        }
+            // printf("[llopenReceiver] Read %x\n", input[0]);
 
-        switch (state)
-        {
-        case START_ST:
-        {
-            if (input[0] == FLAG)
-                state = FLAG_RCV;
-            break;
-        }
-        case FLAG_RCV:
-        {
-            if (input[0] == CMD_TX)
-                state = A_RCV;
-            else if (input[0] != FLAG)
-                state = START_ST;
-            break;
-        }
-        case A_RCV:
-        {
-            if (input[0] == CMD_TX)
-                state = C_RCV;
-            else if (input[0] == FLAG)
-                state = FLAG_RCV;
-            else
-                state = START_ST;
-            break;
-        }
-        case C_RCV:
-        {
-            if (input[0] == (CMD_TX ^ C_SET))
-                state = BCC_OK;
-            else if (input[0] == FLAG)
-                state = FLAG_RCV;
-            else
-                state = START_ST;
-            break;
-        }
-        case BCC_OK:
-        {
-            if (input[0] == FLAG)
+            switch (state)
             {
-                printf("[llopenReceiver] Read SET\n");
-
-                unsigned char UA[5] = {FLAG, 0x03, 0x07, 0x03 ^ 0x07, FLAG};
-                int bytes = write(fd, UA, 5);
-                sleep(1);
-                printf("[llopenReceiver] %d UA bytes written\n", bytes);
-
-                STOP = TRUE;
-            }
-            else
+            case START_ST:
             {
-                state = START_ST;
+                if (input[0] == FLAG)
+                    state = FLAG_RCV;
+                break;
             }
-            break;
-        }
+            case FLAG_RCV:
+            {
+                if (input[0] == CMD_TX)
+                    state = A_RCV;
+                else if (input[0] != FLAG)
+                    state = START_ST;
+                break;
+            }
+            case A_RCV:
+            {
+                if (input[0] == CMD_TX)
+                    state = C_RCV;
+                else if (input[0] == FLAG)
+                    state = FLAG_RCV;
+                else
+                    state = START_ST;
+                break;
+            }
+            case C_RCV:
+            {
+                if (input[0] == (CMD_TX ^ C_SET))
+                    state = BCC_OK;
+                else if (input[0] == FLAG)
+                    state = FLAG_RCV;
+                else
+                    state = START_ST;
+                break;
+            }
+            case BCC_OK:
+            {
+                if (input[0] == FLAG)
+                {
+                    printf("[llopenReceiver] Read SET\n");
+
+                    unsigned char UA[5] = {FLAG, 0x03, 0x07, 0x03 ^ 0x07, FLAG};
+                    int bytes = write(fd, UA, 5);
+                    sleep(1);
+                    printf("[llopenReceiver] %d UA bytes written\n\n", bytes);
+
+                    STOP = TRUE;
+                }
+                else
+                {
+                    state = START_ST;
+                }
+                break;
+            }
+            }
         }
     }
     return 1;
@@ -231,9 +230,6 @@ int llopenReceiver(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llopen(LinkLayer connectionParameters)
 {
-    printf("Reached llopen\n");
-    printf("[llopen] Serial port: %s\n", connectionParameters.serialPort);
-
     // Open serial port device for reading and writing, and not as controlling tty
     // because we don't want to get killed if linenoise sends CTRL-C.
     fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
@@ -330,7 +326,7 @@ int llwriteSendFrame(unsigned char *frame, int frameSize)
         int read_bytes = read(fd, input, 1);
         if (read_bytes)
         {
-            //printf("[llWriteSendFrame] Read 0x%x\n", input[0]);
+            // printf("[llWriteSendFrame] Read 0x%x\n", input[0]);
 
             switch (state)
             {
@@ -400,6 +396,7 @@ int llwriteSendFrame(unsigned char *frame, int frameSize)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
+    clock_t begin = clock();
     unsigned char infFrame[6 + 2 * bufSize];
     createInfFrame(buf, bufSize, frameCountTx, CMD_TX, infFrame);
 
@@ -409,6 +406,14 @@ int llwrite(const unsigned char *buf, int bufSize)
     {
         result = llwriteSendFrame(infFrame, 2 * bufSize + 6); // Resend frame while REJs are being read
     }
+    if (result != -1)
+    {
+        clock_t end = clock();
+        double timeElapsed = (double)(end - begin) / CLOCKS_PER_SEC;
+        timeSum += timeElapsed;
+        frameCount++;
+    }
+
     return result == 1 ? bufSize + 6 : -1;
 }
 
@@ -546,7 +551,7 @@ int llread(unsigned char *packet)
                 }
                 else
                 {
-                    printf("[llread] An ESC that wasn't stuffed\n");
+                    printf("[llread] An ESC wasn't stuffed\n");
                     state = READING_DATA;
                 }
                 break;
@@ -809,6 +814,12 @@ int llclose(int showStatistics, LinkLayer connectionParameters)
     }
 
     close(fd);
+
+    if (showStatistics && connectionParameters.role == LlTx)
+    {
+        printf("\nNumber of information frames sent was %d\n", frameCount);
+        printf("Average transmission time of an information frame was %f milliseconds\n", (double)((timeSum / frameCount) * 1000));
+    }
     return 1;
 }
 
